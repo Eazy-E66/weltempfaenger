@@ -11,6 +11,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ProxyServer } from './server.js';
@@ -69,11 +70,28 @@ export function installTestHooks(
 
   proxy.route('/test/screenshot', async (_req, res, url) => {
     const png = await deps.capturePage();
-    const out = url.searchParams.get('path');
-    if (out) {
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      fs.writeFileSync(out, png);
-      json(res, 200, { ok: true, path: out, bytes: png.length });
+    /* A caller-supplied path is a write primitive. The token gates who may ask,
+       which is authentication — it is not authorisation to write anywhere on
+       the disk. So the path is resolved inside one directory and must name a
+       PNG; `realpath` on the parent is what closes symlink traversal, which a
+       textual `..` check alone would not. */
+    const requested = url.searchParams.get('path');
+    if (requested) {
+      const base = fs.realpathSync(os.tmpdir());
+      const resolved = path.resolve(base, requested);
+      const parent = path.dirname(resolved);
+      fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+      const realParent = fs.realpathSync(parent);
+      if (realParent !== base && !realParent.startsWith(base + path.sep)) {
+        json(res, 400, { ok: false, error: 'path must resolve inside the temp directory' });
+        return;
+      }
+      if (path.extname(resolved).toLowerCase() !== '.png') {
+        json(res, 400, { ok: false, error: 'path must end in .png' });
+        return;
+      }
+      fs.writeFileSync(resolved, png, { mode: 0o600 });
+      json(res, 200, { ok: true, path: resolved, bytes: png.length });
       return;
     }
     res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length });
@@ -141,7 +159,12 @@ export function installTestHooks(
     ],
     writtenAt: Date.now(),
   };
-  fs.mkdirSync(path.dirname(descriptorPath), { recursive: true });
-  fs.writeFileSync(descriptorPath, JSON.stringify(descriptor, null, 2));
+  /* This file carries a bearer token that unlocks arbitrary evaluation in the
+     renderer. Written world-readable it hands that capability to every local
+     account on the machine, so it is owner-only — and chmod'd after the write,
+     because the process umask can otherwise widen the create mode. */
+  fs.mkdirSync(path.dirname(descriptorPath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(descriptorPath, JSON.stringify(descriptor, null, 2), { mode: 0o600 });
+  fs.chmodSync(descriptorPath, 0o600);
   return descriptor;
 }
