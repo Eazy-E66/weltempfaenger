@@ -1,0 +1,29 @@
+{
+  // Main process + preload. Real emit: tsc writes JavaScript that Electron's
+  // Node side runs directly. No bundler involved.
+  //
+  // rootDir=src + outDir=dist means:
+  //   src/main/index.ts    -> dist/main/index.js     (package.json "main")
+  //   src/preload/*.ts     -> dist/preload/*.js
+  //   src/shared/*.ts      -> dist/shared/*.js
+  // src/renderer is excluded — Vite owns it, and its DOM globals must not leak
+  // into a CommonJS/Node compilation.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false,
+    "declaration": false,
+    "sourceMap": true
+  },
+  // Broad include so any main-side layout works (src/main/**, src/preload/**,
+  // src/shared/**, or a preload colocated under src/main/).
+  "include": ["src/**/*"],
+  "exclude": ["src/renderer/**", "test/**", "node_modules", "dist", "release"]
+}

@@ -1,0 +1,59 @@
+/* Dev-harness chrome only. Never shown in the shipped app (the app entry does
+   not mount the bar), and hidden entirely with ?chrome=0 for captures. */
+
+.harness-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(8, 9, 10, 0.92);
+  border-top: 1px solid #23252a;
+  font-family: var(--font-silk);
+}
+
+.harness-bar button {
+  font-family: var(--font-silk);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #cfcabc;
+  padding: 4px 9px;
+  border-radius: 2px;
+  border: 1px solid #303338;
+  background: linear-gradient(180deg, #26282c, #171819);
+}
+.harness-bar button:hover {
+  background: linear-gradient(180deg, #32353a, #202224);
+}
+
+.harness-sep {
+  width: 1px;
+  height: 18px;
+  background: #303338;
+  margin: 0 6px;
+}
+
+body.has-harness-bar .faceplate-root {
+  bottom: 36px;
+}
+
+/* A headless capture window never receives OS focus, so `:focus-visible` can
+   never match and the real focus ring cannot be photographed. This class
+   mirrors the product's focus declarations from base.css so the ring can be
+   screenshotted for review. Harness only — it is not in the shipped bundle and
+   nothing in src/renderer/ui applies it. */
+.harness-focus-demo {
+  outline: 2px solid var(--silk-teal) !important;
+  outline-offset: 4px !important;
+}
+.knob.harness-focus-demo,
+.jewel.harness-focus-demo,
+.power-btn.harness-focus-demo {
+  border-radius: 50% !important;
+}

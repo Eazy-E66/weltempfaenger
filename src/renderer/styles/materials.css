@@ -1,0 +1,852 @@
+/* ===========================================================================
+   MATERIALS
+
+   Every surface here is generated at runtime. No bitmaps ship, so the panel
+   stays correct at any window size and any DPI.
+
+   THE DIVISION OF LABOUR is the point, and it matters more than any single
+   value below:
+
+     CSS owns the LOW frequencies — sheen, lamp falloff, recess lighting, edge
+     highlights, contact shadows. These are smooth, large and cheap, and
+     gradients are genuinely good at them.
+
+     CANVAS owns anything with a real surface normal, and anything repeated
+     small enough to alias — domes, jewels, knurl, turned discs, punched holes,
+     grain. CSS has no notion of a normal, so it cannot express Fresnel, an
+     environment horizon or a transmission caustic at all; and a
+     `repeating-conic-gradient` has no pixel footprint, so once a feature drops
+     below Nyquist it moirés and no amount of tuning will fix it. See
+     ui/textures2.ts, and ui/materials.ts for when the baking happens.
+
+   Every canvas layer has a CSS fallback underneath it that is a complete
+   surface on its own, because the bitmaps arrive after first paint. The
+   fallbacks switch off by attribute once the real thing lands.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. Brushed aluminium.
+
+   Anisotropy is the whole game. It means the highlight is smeared ALONG the
+   grain and tight ACROSS it, so a horizontally-brushed panel carries a wide,
+   low, horizontally-elongated specular band — not a round hotspot and not a
+   linear ramp. That band is what says "brushed"; the grain alone just says
+   "dirty".
+
+   The grain itself is one seamless stochastic tile of real linisher marks
+   (--grain-url), blended `overlay` so it modulates the surface rather than
+   tinting it. Until it lands, three repeating gradients at coprime periods
+   stand in — which is what used to be here permanently, and which reads as
+   corduroy at 4x, because coprimality lengthens a repeat without removing it
+   and the eye is an extremely good periodicity detector.
+   ------------------------------------------------------------------------- */
+
+/* THE SHEEN, in three bands rather than one.
+
+   A brushed panel under one lamp does not carry a single soft blob. It carries
+   a WIDE, LOW, hard-cored band smeared along the grain — the specular lobe of
+   an anisotropic surface is stretched in the direction the scratches run and
+   squeezed across them — plus a slow across-grain drift from the belt's own
+   wear, plus the general lamp falloff. The first two are what make a flat grey
+   rectangle read as rolled metal; the third alone reads as a vignette, which
+   is what a single 34%-tall gradient at 0.3 was giving. */
+.mat-alu {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--alu-base);
+  background-image:
+    /* (a) the sheen core: very tight in y, running the full width in x */
+    radial-gradient(
+      170% 8% at 33% 22%,
+      rgba(255, 253, 246, 0.34) 0%,
+      rgba(255, 252, 242, 0.14) 46%,
+      rgba(255, 250, 236, 0) 100%
+    ),
+    /* (b) its shoulder — the same band, wider and weaker */
+    radial-gradient(
+      150% 30% at 31% 25%,
+      rgba(255, 250, 236, 0.3) 0%,
+      rgba(255, 250, 236, 0.11) 44%,
+      rgba(255, 250, 236, 0) 82%
+    ),
+    /* (c) across-grain drift: the belt does not wear evenly down the panel */
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.05) 0%,
+      rgba(255, 251, 238, 0.05) 17%,
+      rgba(0, 0, 0, 0.015) 38%,
+      rgba(255, 251, 238, 0.035) 55%,
+      rgba(0, 0, 0, 0.008) 78%,
+      rgba(0, 0, 0, 0.008) 100%
+    ),
+    /* broad lamp falloff, and the grazing darkening opposite it */
+    radial-gradient(
+      130% 150% at 24% 8%,
+      rgba(255, 250, 236, 0.26) 0%,
+      rgba(255, 250, 236, 0.13) 30%,
+      rgba(255, 250, 236, 0.05) 56%,
+      rgba(0, 0, 0, 0) 76%,
+      rgba(0, 0, 0, 0.012) 90%,
+      rgba(0, 0, 0, 0.028) 100%
+    ),
+    linear-gradient(var(--light-angle), rgba(255, 252, 242, 0.05), rgba(0, 0, 0, 0.022)),
+    /* --- fallback brush, replaced by the tile below --- */
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.06) 1px,
+      rgba(0, 0, 0, 0.055) 1px,
+      rgba(0, 0, 0, 0.055) 2px,
+      rgba(255, 255, 255, 0.014) 2px,
+      rgba(255, 255, 255, 0.014) 3px
+    );
+}
+
+/* Once the real grain tile exists the stand-in comes off. */
+:root[data-mx-grain='on'] .mat-alu {
+  background-image:
+    radial-gradient(
+      170% 8% at 33% 22%,
+      rgba(255, 253, 246, 0.34) 0%,
+      rgba(255, 252, 242, 0.14) 46%,
+      rgba(255, 250, 236, 0) 100%
+    ),
+    radial-gradient(
+      150% 30% at 31% 25%,
+      rgba(255, 250, 236, 0.3) 0%,
+      rgba(255, 250, 236, 0.11) 44%,
+      rgba(255, 250, 236, 0) 82%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.05) 0%,
+      rgba(255, 251, 238, 0.05) 17%,
+      rgba(0, 0, 0, 0.015) 38%,
+      rgba(255, 251, 238, 0.035) 55%,
+      rgba(0, 0, 0, 0.008) 78%,
+      rgba(0, 0, 0, 0.008) 100%
+    ),
+    /* Broad lamp falloff. Gentle on purpose: the front face of a desk receiver
+       sits in a room, not in a void, and a 26%-at-the-bottom vignette both
+       reads as a photographic effect rather than a lit object AND drops the
+       metal under the tone row to 105/255, where no ink can print at 4.5:1. */
+    radial-gradient(
+      130% 150% at 24% 8%,
+      rgba(255, 250, 236, 0.26) 0%,
+      rgba(255, 250, 236, 0.13) 30%,
+      rgba(255, 250, 236, 0.05) 56%,
+      rgba(0, 0, 0, 0) 76%,
+      rgba(0, 0, 0, 0.012) 90%,
+      rgba(0, 0, 0, 0.028) 100%
+    ),
+    linear-gradient(var(--light-angle), rgba(255, 252, 242, 0.05), rgba(0, 0, 0, 0.022));
+}
+
+/* Texture sits ON its own surface and under everything mounted to it.
+   z-index:-1 inside an isolated parent paints the layer straight after that
+   parent's background and before any of its content — which is what "grain in
+   the anodising" means. Left in the positioned layer it would instead wash over
+   every child painted before it, and you would see the grain crawl across the
+   speaker column. */
+.mat-alu > .tex,
+.mat-black > .tex,
+.mx-grain,
+.mx-wear {
+  position: absolute;
+  inset: 0;
+  /* An <svg> is a replaced element with an intrinsic 300x150 size, and for
+     replaced boxes `inset: 0` with `width: auto` resolves to that intrinsic
+     size and pushes the slack into margins. Without these two lines every
+     texture is a 300x150 patch in the corner of its surface. */
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.tex--alu {
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+}
+
+/* The seamless grain tile. Nothing paints until the tile exists.
+
+   THE MASK IS THE ANISOTROPY. Scratches are only visible where the specular
+   grazes them — hold a brushed panel under a lamp and the grain appears in the
+   sheen band and disappears outside it. Modulating the tile by the same band
+   the sheen uses is therefore not decoration, it is the effect: it is what
+   stops the grain reading as a flat overlay of noise, and it is the difference
+   the cheeks already had (their tile is compressed 6:1 by foreshortening, so
+   they got density the front face never did) and the front face did not.
+
+   At 0.62 opacity over a sigma-4 tile the front panel measured 2.1%
+   peak-to-peak across a 60 px run. That is not a quiet surface, it is a blank
+   one. */
+.mx-grain {
+  background-image: var(--grain-url);
+  background-repeat: repeat;
+  background-size: var(--grain-size, 1024px 512px);
+  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity, 0.95);
+  -webkit-mask-image: var(
+    --grain-mask,
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgb(0, 0, 0) 20%,
+      rgba(0, 0, 0, 0.86) 44%,
+      rgba(0, 0, 0, 0.66) 72%,
+      rgba(0, 0, 0, 0.52) 100%
+    )
+  );
+  mask-image: var(
+    --grain-mask,
+    linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.5) 0%,
+      rgb(0, 0, 0) 20%,
+      rgba(0, 0, 0, 0.86) 44%,
+      rgba(0, 0, 0, 0.66) 72%,
+      rgba(0, 0, 0, 0.52) 100%
+    )
+  );
+}
+
+/* Wear sits ABOVE the grain — it polishes the grain out — but below content. */
+.mx-wear {
+  background-image: var(--wear-url);
+  background-size: 100% 100%;
+  mix-blend-mode: overlay;
+  opacity: var(--wear-opacity, 0.85);
+}
+
+/* Foreshortened faces. A face seen at a grazing angle compresses along its
+   depth axis, and the grain must compress with it: a texture that stays square
+   is what makes a box render look like a decal. */
+.mx-face--left .mx-grain,
+.mx-face--right .mx-grain {
+  background-size: var(--cheek-grain, 168px 512px);
+}
+.mx-face--top .mx-grain,
+.mx-face--bottom .mx-grain {
+  background-size: var(--return-grain, 1024px 64px);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Matte black control panel, and the cut it sits in.
+
+   The seam is four distinct things and they are not symmetric:
+     i.   a bright machined lip on the aluminium's upper-left cut edge
+     ii.  a hard black clearance line
+     iii. a long soft penumbra falling INTO the panel from the upper left,
+          because the wall above it occludes the lamp
+     iv.  a faint bounce along the panel's lower-right edge, from light that
+          made it into the recess
+   Plus grime in the groove, heavier at the bottom, because nobody wipes a seam.
+   ------------------------------------------------------------------------- */
+
+.mat-black {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--panel-base);
+  background-image:
+    radial-gradient(
+      130% 80% at var(--lit-x) var(--lit-y),
+      rgba(255, 252, 244, 0.062) 0%,
+      rgba(255, 252, 244, 0.014) 40%,
+      rgba(0, 0, 0, 0) 70%
+    ),
+    linear-gradient(var(--light-angle), #232529 0%, #191a1c 48%, #0f1011 100%);
+  box-shadow:
+    /* (iii) the penumbra — long and soft from the upper left */
+    inset 0 4px 9px -2px rgba(0, 0, 0, 0.9),
+    inset 4px 0 8px -2px rgba(0, 0, 0, 0.78),
+    /* (iv) the bounce */
+    inset 0 -1px 0 rgba(214, 206, 188, 0.075),
+    inset -1px 0 0 rgba(214, 206, 188, 0.05),
+    inset 0 -6px 10px -6px rgba(190, 180, 158, 0.09),
+    /* (ii) the clearance gap */
+    0 0 0 1px rgba(3, 3, 4, 0.96),
+    /* (i) the machined lip on the aluminium, lit top-left only */
+    -1px -1px 0 1px rgba(238, 232, 214, 0.3),
+    1px 1px 0 1px rgba(0, 0, 0, 0.5),
+    0 3px 7px rgba(0, 0, 0, 0.5);
+}
+
+/* Grime in the seam. */
+.mat-black::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(180deg, rgba(58, 54, 46, 0.32), rgba(0, 0, 0, 0) 5%),
+    linear-gradient(0deg, rgba(48, 44, 37, 0.42), rgba(0, 0, 0, 0) 7%),
+    linear-gradient(90deg, rgba(52, 48, 41, 0.28), rgba(0, 0, 0, 0) 3%),
+    linear-gradient(270deg, rgba(52, 48, 41, 0.24), rgba(0, 0, 0, 0) 3%);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+
+.tex--black {
+  opacity: 0.42;
+  mix-blend-mode: soft-light;
+}
+
+/* Moulding tooth on the panel: fine, isotropic, very low contrast. */
+.mx-tooth {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: var(--tooth-url);
+  background-size: 256px 256px;
+  mix-blend-mode: soft-light;
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+   3. Chrome.
+
+   A conic sweep is what makes metal read as metal: the environment wraps around
+   the form, so there are two bright quadrants and two dark ones, not a linear
+   ramp. The `from` angle is pinned to --light-conic so every chrome part in the
+   app reflects the same room. Small polished parts get a real shader instead —
+   see `.knob__band` and `.tuning-knob__disc`.
+   ------------------------------------------------------------------------- */
+
+.mat-chrome {
+  background-image: conic-gradient(
+    from var(--light-conic),
+    var(--chr-1) 0deg,
+    var(--chr-3) 26deg,
+    var(--chr-2) 58deg,
+    var(--chr-4) 92deg,
+    var(--chr-5) 128deg,
+    var(--chr-2) 168deg,
+    var(--chr-3) 196deg,
+    var(--chr-4) 236deg,
+    var(--chr-5) 286deg,
+    var(--chr-1) 360deg
+  );
+}
+
+/* A sharp specular arc — the single hot streak that says 'polished'. */
+.mat-chrome::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    58% 34% at var(--lit-x) var(--lit-y),
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.28) 32%,
+    rgba(255, 255, 255, 0) 66%
+  );
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   4. Glass over a recess.
+
+   TWO speculars, offset by the pane's thickness — front surface and back
+   surface. That doubling is the cheapest photographic cue available and no
+   single-streak implementation can fake it. Plus edge tint concentrated where
+   the light path through the pane is longest, and dust motes that each carry
+   their own small shadow, which is what puts them ON the glass rather than IN
+   the image behind it.
+   ------------------------------------------------------------------------- */
+
+.mat-glass {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  background-image:
+    /* front surface: hard leading edge, soft trailing */
+    linear-gradient(
+      104deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0) 6%,
+      rgba(255, 253, 246, 0.185) 6.6%,
+      rgba(255, 253, 246, 0.1) 13%,
+      rgba(255, 253, 246, 0.018) 21%,
+      rgba(255, 255, 255, 0) 30%
+    ),
+    /* back surface: the same streak, weaker, offset by the thickness */
+    linear-gradient(
+      104deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0) 13.5%,
+      rgba(228, 240, 236, 0.075) 14.2%,
+      rgba(228, 240, 236, 0.03) 18%,
+      rgba(255, 255, 255, 0) 24%
+    ),
+    /* edge tint: the path through the pane is longest at its edges */
+    radial-gradient(
+      110% 130% at 50% 50%,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(96, 128, 118, 0.1) 88%,
+      rgba(74, 104, 96, 0.18) 100%
+    ),
+    linear-gradient(180deg, rgba(178, 212, 198, 0.035), rgba(112, 144, 134, 0.022));
+  box-shadow:
+    /* the bezel's shadow, thrown onto the printed face BEHIND the pane and so
+       parallax-offset down and right from the bezel itself */
+    inset 0 4px 7px -1px rgba(0, 0, 0, 0.62),
+    inset 3px 0 6px -1px rgba(0, 0, 0, 0.5),
+    inset 0 -2px 4px -1px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.8);
+}
+
+/* GLASS OVER A PALE FACE.
+ *
+ * Every alpha above is a fraction of the headroom between the surface behind
+ * the pane and white, and that surface is normally the drum dial or the LCD —
+ * dark. Over the meter's cream card at ~235 the same streak has four levels of
+ * headroom to work in and simply is not there: a diagonal sample ran 235 → 195
+ * with no streak and no tint, which is a vignette.
+ *
+ * The physics that fixes it is the physics that was missing. Plate glass is
+ * not a pure adder: it ABSORBS a few percent on the way through and reflects
+ * the room on the way back. So the pane first knocks the whole face down and
+ * cools it — that is the tint the brief asks for, and it is why instrument
+ * glass over cream card looks slightly green-grey — and the specular then
+ * climbs back off that lowered ground with real headroom above it. Same two
+ * surfaces, same 104° axis, same bezel shadow: only the level the streak is
+ * measured from changes.
+ */
+.mat-glass--pale {
+  background-image:
+    /* front surface: hard leading edge, soft trailing */
+    linear-gradient(
+      104deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0) 9%,
+      rgba(255, 254, 250, 0.82) 9.8%,
+      rgba(255, 254, 250, 0.46) 16%,
+      rgba(255, 253, 246, 0.16) 26%,
+      rgba(255, 255, 255, 0) 36%
+    ),
+    /* back surface: the same streak, weaker, offset by the thickness */
+    linear-gradient(
+      104deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0) 19%,
+      rgba(236, 248, 244, 0.34) 19.8%,
+      rgba(236, 248, 244, 0.13) 25%,
+      rgba(255, 255, 255, 0) 32%
+    ),
+    /* the corner bloom. Without it the two streaks are a bar running the full
+       height of the pane; the brief asks for a sheen in the TOP LEFT, which is
+       where the lamp is, and a reflection falls off away from its source. */
+    radial-gradient(
+      92% 124% at 10% -12%,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.07) 42%,
+      rgba(255, 255, 255, 0) 74%
+    ),
+    /* edge tint: the path through the pane is longest at its edges */
+    radial-gradient(
+      112% 132% at 50% 50%,
+      rgba(0, 0, 0, 0) 40%,
+      rgba(70, 96, 88, 0.15) 82%,
+      rgba(54, 78, 72, 0.3) 100%
+    ),
+    /* absorption: a few percent off everything, cooled. This is what gives the
+       streak somewhere to go. */
+    linear-gradient(168deg, rgba(96, 116, 106, 0.15) 0%, rgba(78, 98, 92, 0.21) 100%);
+}
+
+/* Dust, when the pane has been given some. */
+.mat-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--dust-url);
+  background-size: 100% 100%;
+  opacity: 0.85;
+}
+
+/* The chrome-edged recess a window sits in. */
+.recess {
+  position: relative;
+  border-radius: var(--r-window);
+  box-shadow:
+    /* aluminium lip: lit top-left, shaded bottom-right */
+    0 -1px 0 rgba(240, 235, 220, 0.3),
+    -1px 0 0 rgba(240, 235, 220, 0.2),
+    0 1px 0 rgba(0, 0, 0, 0.75),
+    1px 0 0 rgba(0, 0, 0, 0.6),
+    0 2px 5px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------------------------------------------------------------------------
+   5. Knurling.
+
+   The sprite is the whole optic — see `knurlSprite` in ui/textures2.ts. What
+   was here was a `repeating-conic-gradient` at 2.2°, i.e. 164 teeth; on a 56 px
+   knob the knurled annulus is about 148 device px round, so that is half a
+   device pixel per tooth. Nothing can render that, and a conic gradient has no
+   pixel footprint so it cannot antialias — it is a Nyquist failure, not a
+   tuning problem, and the 150 px flywheel only survived it because there the
+   pitch happened to land near 2 px.
+
+   The sprite derives its tooth count from its pixel size, fades tooth contrast
+   toward the local mean as the footprint approaches half a period (which is
+   what a mip-map does), and shades from real facet normals, so the flank that
+   catches the light swaps sides round the knob and the contrast decays into the
+   shadowed quadrant by itself instead of being masked down by hand.
+   ------------------------------------------------------------------------- */
+
+.mx-knurl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  pointer-events: none;
+  display: block;
+}
+
+/* ---------------------------------------------------------------------------
+   6. Speaker grille.
+
+   One canvas of real punched geometry. The CSS below is only what is OUTSIDE
+   the holes: the shallow recess the field sits in, its rim shadow, and the
+   glow of the cabinet behind. The tiled-gradient lattice remains as the
+   pre-bake stand-in and is switched off the moment the sheet arrives.
+   ------------------------------------------------------------------------- */
+
+.mx-grille {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  pointer-events: none;
+  --cell: 9.5px;
+  --row: 8.23px; /* cell * sin(60°) */
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(255, 252, 240, 0.34) 0 33%, rgba(255, 252, 240, 0) 40%),
+    radial-gradient(circle at 50% 44%, rgba(6, 6, 7, 0.98) 0 26%, rgba(24, 23, 21, 0.85) 26% 33%, rgba(0, 0, 0, 0) 36%),
+    radial-gradient(circle at 50% 50%, rgba(255, 252, 240, 0.34) 0 33%, rgba(255, 252, 240, 0) 40%),
+    radial-gradient(circle at 50% 44%, rgba(6, 6, 7, 0.98) 0 26%, rgba(24, 23, 21, 0.85) 26% 33%, rgba(0, 0, 0, 0) 36%);
+  background-size:
+    var(--cell) calc(var(--row) * 2),
+    var(--cell) calc(var(--row) * 2),
+    var(--cell) calc(var(--row) * 2),
+    var(--cell) calc(var(--row) * 2);
+  background-position:
+    0 1.2px,
+    0 0,
+    calc(var(--cell) / 2) calc(var(--row) + 1.2px),
+    calc(var(--cell) / 2) var(--row);
+}
+
+.mx-grille[data-mx-punched] {
+  background-image: none;
+}
+
+.mx-grille__sheet {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* The sheet is punched, so the whole field sits a touch darker, the driver
+   behind it catches the raking light, and the recess throws a rim shadow. */
+.grille-cavity {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 22% 8%, rgba(255, 248, 230, 0.07), rgba(0, 0, 0, 0) 52%),
+    radial-gradient(150% 120% at 78% 96%, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 62%);
+}
+
+/* ---------------------------------------------------------------------------
+   7. Jewels, domes and their light.
+
+   The sprite is the whole optic; CSS contributes only what is OUTSIDE the part
+   — the contact shadow it casts, and, when lit, the light it throws back onto
+   the panel.
+
+   That halo is `mix-blend-mode: screen` on a radial gradient rather than a
+   blurred `box-shadow`, and the difference matters: screen ADDS to whatever is
+   underneath, so the panel's own moulding tooth stays visible inside the glow.
+   A blurred box-shadow paints over it and reads as an airbrushed sticker.
+   ------------------------------------------------------------------------- */
+
+.mx-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--halo-d, 300%);
+  height: var(--halo-d, 300%);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  background: radial-gradient(
+    circle,
+    var(--halo-c, rgba(255, 176, 46, 0.55)) 0%,
+    color-mix(in srgb, var(--halo-c, rgba(255, 176, 46, 1)) 34%, transparent) 26%,
+    color-mix(in srgb, var(--halo-c, rgba(255, 176, 46, 1)) 10%, transparent) 48%,
+    transparent 72%
+  );
+}
+[data-lit='true'] > .mx-halo {
+  opacity: 1;
+}
+
+/* The bounce: a lit lamp also warms the metal immediately under it. */
+.mx-bounce {
+  position: absolute;
+  left: -40%;
+  right: -40%;
+  top: 42%;
+  height: 120%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  mix-blend-mode: screen;
+  transition: opacity 160ms ease;
+  background: radial-gradient(60% 46% at 50% 12%, var(--halo-c, rgba(255, 176, 46, 0.4)), transparent 70%);
+  filter: blur(3px);
+}
+[data-lit='true'] > .mx-bounce {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   8. Backlit scale ground.
+
+   Not a flat tint: the lamp sits at a known place behind the scale and falls
+   off from there, so the far corner of the window is measurably dimmer.
+   ------------------------------------------------------------------------- */
+
+.backlit {
+  background-image: radial-gradient(
+    130% 190% at 22% 12%,
+    var(--dial-lamp) 0%,
+    color-mix(in srgb, var(--dial-lamp) 62%, #6d5b39) 30%,
+    color-mix(in srgb, var(--dial-lamp) 26%, #2b2419) 72%,
+    #1a160f 100%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   9. The cabinet as a box — cheeks, handles, feet.
+
+   Each face's brightness is `ambient + N·L` from the one light vector, written
+   into --face-* at boot by ui/materials.ts. Five multipliers, all derived, none
+   tunable apart: the left cheek turns toward the lamp and is BRIGHTER than the
+   front, the right turns away and is darker. Growing a face therefore can never
+   produce a flat panel — it produces a bigger box under the same lamp.
+   ------------------------------------------------------------------------- */
+
+.mx-face--left {
+  filter: brightness(var(--face-left, 1.14));
+}
+.mx-face--right {
+  filter: brightness(var(--face-right, 0.58));
+}
+.mx-face--top {
+  filter: brightness(var(--face-top, 1.22));
+}
+.mx-face--bottom {
+  filter: brightness(var(--face-bottom, 0.48));
+}
+
+/* A moulded bracket is bolted on, so it casts a real contact shadow.
+
+   A cast shadow is the part's own silhouette, displaced along the light — so
+   for one lamp at upper left it is the strap again, offset down and to the
+   right, not a soft blob centred on the part. The previous radial sat with its
+   dark core at 42%/34%, i.e. UP and to the LEFT of the strap, which is the
+   shadow of a lamp at lower right and disagrees with every other surface in the
+   app. It is now an offset silhouette: tight and dark against the joint,
+   opening out as it leaves it.
+
+   `blur()` on a static pseudo-element of a static part is baked by the
+   compositor once; nothing here repaints per frame. */
+.mx-handle {
+  position: relative;
+  line-height: 0;
+}
+.mx-handle__bar {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mx-handle::after {
+  content: '';
+  position: absolute;
+  inset: -1px -5px -5px -1px;
+  z-index: -1;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  filter: blur(3px);
+}
+
+/* ---------------------------------------------------------------------------
+   10. Bevelled skeuomorphic button (PSP reference: late-90s, soft top light).
+   ------------------------------------------------------------------------- */
+
+.btn-bevel {
+  position: relative;
+  background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0.06) 42%,
+      rgba(0, 0, 0, 0.1) 56%,
+      rgba(0, 0, 0, 0.26) 100%
+    ),
+    linear-gradient(var(--light-angle), #4b4d51, #303236 60%, #232527);
+  border: 1px solid #0a0b0c;
+  border-radius: 3px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: box-shadow 90ms ease, transform 90ms ease;
+}
+
+.btn-bevel:hover {
+  background-image: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.09) 42%,
+      rgba(0, 0, 0, 0.08) 56%,
+      rgba(0, 0, 0, 0.24) 100%
+    ),
+    linear-gradient(var(--light-angle), #5a5c61, #3a3c40 60%, #2a2c2e);
+}
+
+/* A pressed button is a statement about the user's finger, not about the radio. */
+.btn-bevel:active,
+.btn-bevel.is-pressed {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ---------------------------------------------------------------------------
+   11. PRINTED INK — one ink per substrate, not one ink.
+
+   The panel prints on two substrates and it was using one ink on both. The
+   same `--silk` (#cfcabc) that measures 7.7–10.0:1 on the matte black panel —
+   correct, and exactly what the reference does there — measures 1.4–1.7:1 on
+   the aluminium, 1.16:1 for the teal line, and 1.1:1 for the graduations round
+   the tone knobs. That is not a legibility bug on top of an otherwise faithful
+   panel; it is the *cause* of a fidelity bug, because the ICF-6800W does not
+   silkscreen off-white onto its aluminium either. It prints DARK on the metal
+   and light on the black, and the tone knobs' scale arcs are dark ink, which
+   is why the reference has three scales where this had one visible one.
+
+   So: a second ink, for light substrates, applied by where the type sits
+   rather than by what the type is. Every rule below is scoped to a substrate.
+
+   The drop shadow flips with the ink. Light ink on dark takes a dark lower lip;
+   dark ink on light takes a LIGHT one, because the ink sits down in the
+   anodising and the metal just below it still catches the lamp.
+
+   The `--lcd-*` and `--meter-*` revisions are the same law applied to the two
+   backlit faces, which are also light substrates carrying dark ink that was
+   set too pale to read (2.46:1 for the technical figures, 2.85:1 for BUF,
+   2.58:1 for the meter's own printing).
+   ------------------------------------------------------------------------- */
+
+:root {
+  /* Ink for LIGHT substrates: brushed aluminium, meter card, backlit glass.
+     Never pure black — pad-printed ink on anodising is a warm near-black that
+     lets the substrate's colour through at the edges. */
+  --silk-ink: #1a1814;
+  --silk-teal-ink: #072b28;
+  --silk-maroon-ink: #4a120f;
+
+  /* Revised here rather than in tokens.css because these two are the SAME
+     mistake as `--silk` on aluminium: an ink chosen against a dark ground and
+     then used on a lit one. Both are dark ink on a backlit amber face. */
+  --lcd-ink-dim: #33280b;
+  --lcd-ground-hi: #f6e3b6;
+  --lcd-ground-lo: #ddbd86;
+  --meter-ink: #201b12;
+}
+
+/* --- the aluminium shell: the speaker column and the footer legend --------- */
+
+.speaker .silk,
+.shell__footer .silk {
+  color: var(--silk-ink);
+  text-shadow:
+    0 0 0.7px rgba(26, 24, 20, 0.4),
+    0 1px 0 rgba(255, 252, 240, 0.34);
+}
+.speaker .silk--teal {
+  color: var(--silk-teal-ink);
+  text-shadow:
+    0 0 1px rgba(7, 43, 40, 0.35),
+    0 1px 0 rgba(255, 252, 240, 0.32);
+}
+.speaker .silk--dim {
+  /* No dimmer ink on metal. Secondary print is smaller and wider-tracked, not
+     fainter — a second contrast tier on a 1.5:1 substrate is how the model
+     line ended up unreadable in the first place. */
+  color: var(--silk-ink);
+}
+.shell__footer .silk--maroon {
+  color: var(--silk-maroon-ink);
+  text-shadow: 0 1px 0 rgba(255, 252, 240, 0.3);
+}
+
+/* The brand wordmark stays light: it is an embossed badge on the metal, not
+   printed legend, and the reference's own wordmark is white on the aluminium. */
+
+/* --- the two backlit faces ------------------------------------------------ */
+
+/* Scoped one level deeper than the base rules in displays.css so the ink law
+   holds wherever those rules are edited.
+
+   THE SUBSTRATE IS PART OF THE INK DECISION. Dark ink on the LCD could not
+   reach 4.5:1 by getting darker: the face's own gradient fell from 217 at the
+   lamp end to 125 at the far corner, and under the pane that measured 104,
+   where even pure black tops out at 3.4:1. A 92-level falloff across a 50 px
+   window is not what an edge-lit panel does — a backlight is a diffuser, and
+   the reason it looks lit at all is that it is EVENLY lit with a gentle
+   gradient toward the far edge. Raising the far end is therefore not
+   flattening the backlit character; the flat, half-extinguished version was
+   the thing that had none. The lamp-off state below stays exactly as dark. */
+.lcd .lcd__face {
+  background-image: radial-gradient(
+    120% 200% at 16% 0%,
+    var(--lcd-ground-hi) 0%,
+    #ecd5a0 38%,
+    var(--lcd-ground-lo) 74%,
+    #cba86c 100%
+  );
+}
+:root[data-lamp='off'] .lcd .lcd__face {
+  background-image: radial-gradient(120% 200% at 16% 0%, #6e6656 0%, #4d4739 45%, #302c24 100%);
+}
+.lcd .lcd__detail {
+  color: rgba(28, 21, 6, 1);
+}
+.lcd .lcd__buf-label {
+  color: rgba(28, 21, 6, 1);
+}
+.meter .meter__mark {
+  opacity: 0.8;
+}

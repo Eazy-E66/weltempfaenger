@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Mexico",
+    "iso_3166_1": "MX",
+    "stationcount": 1988
+  },
+  {
+    "name": "Germany",
+    "iso_3166_1": "DE",
+    "stationcount": 3000
+  },
+  {
+    "name": "The United States Of America",
+    "iso_3166_1": "US",
+    "stationcount": 9000
+  }
+]

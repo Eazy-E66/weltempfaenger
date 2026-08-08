@@ -1,0 +1,183 @@
+{
+  "note": [
+    "Real ICY metadata blocks, as captured off live mounts. The iHeart/Triton",
+    "shapes are the ones that printed a wall of amgArtistId / TAID / TPID /",
+    "cartcutId on the panel: the scheduling record arrives *inside* StreamTitle,",
+    "sometimes with the inner quotes escaped and sometimes not, because the",
+    "encoder concatenates the url field without re-quoting it.",
+    "`expect` is null where the block carries no programme information at all.",
+    "The unterminated shapes are the fallback path: with no terminator the closing quote can only be the block's last character, never the last apostrophe in it -- StreamTitle='Rockin' Chair used to truncate to Rockin."
+  ],
+  "cases": [
+    {
+      "name": "iHeart, escaped inner quotes",
+      "block": "StreamTitle='title=\"Sober\",artist=\"Tool\",url=\"song_spot=\\\"M\\\" MediaBaseId=\\\"1150697\\\" itunesTrackId=\\\"0\\\" amgTrackId=\\\"-1\\\" amgArtistId=\\\"0\\\" TAID=\\\"0\\\" TPID=\\\"0\\\" cartcutId=\\\"0\\\" amgArtworkURL=\\\"null\\\" length=\\\"00:05:06\\\" unsID=\\\"-1\\\" spotInstanceId=\\\"-1\\\"\";",
+      "expect": {
+        "title": "Tool - Sober",
+        "artist": "Tool",
+        "track": "Sober"
+      }
+    },
+    {
+      "name": "iHeart WKSC-FM Chicago, captured 2026-08-08 off stream.revma.ihrhls.com/zc1145",
+      "block": "StreamTitle='title=\"Poker Face\",artist=\"LADY GAGA\",url=\"song_spot=\"F\" MediaBaseId=\"0\" itunesTrackId=\"0\" amgTrackId=\"-1\" amgArtistId=\"0\" TAID=\"0\" TPID=\"78381444\" cartcutId=\"0\" amgArtworkURL=\"http://image.iheart.com/bell-ingestion-pipeline-production-umg/full/00602508223051_20200729074007621/19UMGIM73435_T2_cvrart.jpg\" length=\"00:03:55\" unsID=\"-1\" spotInstanceId=\"be273881-5fe9-4721-b47d-79874a8d7e07\"\"';",
+      "expect": {
+        "title": "LADY GAGA - Poker Face",
+        "artist": "LADY GAGA",
+        "track": "Poker Face"
+      }
+    },
+    {
+      "name": "iHeart WKSC-FM Chicago, second capture from the same session",
+      "block": "StreamTitle='title=\"Love Yourself\",artist=\"JUSTIN BIEBER\",url=\"song_spot=\"F\" MediaBaseId=\"0\" itunesTrackId=\"0\" amgTrackId=\"-1\" amgArtistId=\"0\" TAID=\"0\" TPID=\"36798443\" cartcutId=\"0\" amgArtworkURL=\"https://i.iheart.com/v3/catalog/track/36798443?ops=fit(200,200),format(%22jpeg%22)\" length=\"00:03:50\" unsID=\"-1\" spotInstanceId=\"33156897-430b-4d08-ac69-f07af5011a80\"\"';",
+      "expect": {
+        "title": "JUSTIN BIEBER - Love Yourself",
+        "artist": "JUSTIN BIEBER",
+        "track": "Love Yourself"
+      }
+    },
+    {
+      "name": "iHeart advertising cart, captured off the same mount",
+      "block": "StreamTitle='T_mobile - text=\"T_mobile\" song_spot=\"T\" MediaBaseId=\"0\" itunesTrackId=\"0\" amgTrackId=\"-1\" amgArtistId=\"0\" TAID=\"0\" TPID=\"0\" cartcutId=\"7415694001\" amgArtworkURL=\"null\" length=\"00:00:59\" unsID=\"-1\" spotInstanceId=\"67638361\"';",
+      "expect": {
+        "title": "T_mobile"
+      }
+    },
+    {
+      "name": "iHeart 102.7 KIIS FM ad-break marker, captured off stream.revma.ihrhls.com/zc185",
+      "block": "StreamTitle=' - text=\"Spot Block End\" amgTrackId=\"9876543\" length=\"00:00:00\"';",
+      "expect": {
+        "title": "Spot Block End"
+      }
+    },
+    {
+      "name": "iHeart, unescaped inner quotes",
+      "block": "StreamTitle='title=\"Blinding Lights\",artist=\"The Weeknd\",url=\"song_spot=\"F\" MediaBaseId=\"0\" itunesTrackId=\"0\" amgTrackId=\"0\" amgArtistId=\"0\" TAID=\"0\" TPID=\"0\" cartcutId=\"0\"';",
+      "expect": {
+        "title": "The Weeknd - Blinding Lights",
+        "artist": "The Weeknd",
+        "track": "Blinding Lights"
+      }
+    },
+    {
+      "name": "Triton, preformatted text field",
+      "block": "StreamTitle='text=\"Fleetwood Mac - Dreams\"';",
+      "expect": {
+        "title": "Fleetwood Mac - Dreams",
+        "artist": "Fleetwood Mac",
+        "track": "Dreams"
+      }
+    },
+    {
+      "name": "keyed record with no artist field",
+      "block": "StreamTitle='title=\"News At Ten\",url=\"song_spot=\"T\" cartcutId=\"0\"';",
+      "expect": {
+        "title": "News At Ten"
+      }
+    },
+    {
+      "name": "keyed title that itself carries the artist",
+      "block": "StreamTitle='title=\"Radiohead - Creep\",song_spot=\"M\",MediaBaseId=\"0\"';",
+      "expect": {
+        "title": "Radiohead - Creep",
+        "artist": "Radiohead",
+        "track": "Creep"
+      }
+    },
+    {
+      "name": "advertising break: scheduling record only, no programme",
+      "block": "StreamTitle='song_spot=\"T\",spotInstanceId=\"-1\",length=\"00:00:30\",MediaBaseId=\"0\",TAID=\"0\",TPID=\"0\",cartcutId=\"0\"';",
+      "expect": null
+    },
+    {
+      "name": "plain Artist - Track, which is most of the world",
+      "block": "StreamTitle='Miles Davis - So What';StreamUrl='';",
+      "expect": {
+        "title": "Miles Davis - So What",
+        "artist": "Miles Davis",
+        "track": "So What"
+      }
+    },
+    {
+      "name": "plain title with a scheduling record appended",
+      "block": "StreamTitle='Above & Beyond - Sun & Moon song_spot=\"M\" MediaBaseId=\"0\" itunesTrackId=\"0\"';",
+      "expect": {
+        "title": "Above & Beyond - Sun & Moon",
+        "artist": "Above & Beyond",
+        "track": "Sun & Moon"
+      }
+    },
+    {
+      "name": "apostrophes, which a naive quote regex truncates",
+      "block": "StreamTitle='Guns N' Roses - Sweet Child O' Mine';StreamUrl='http://example.invalid';",
+      "expect": {
+        "title": "Guns N' Roses - Sweet Child O' Mine",
+        "artist": "Guns N' Roses",
+        "track": "Sweet Child O' Mine"
+      }
+    },
+    {
+      "name": "apostrophe title with the trailing semicolon omitted, as many servers send it",
+      "block": "StreamTitle='Rockin' Chair",
+      "expect": {
+        "title": "Rockin' Chair"
+      }
+    },
+    {
+      "name": "apostrophes and a closing quote, but no terminator after it",
+      "block": "StreamTitle='Guns N' Roses - Sweet Child O' Mine'",
+      "expect": {
+        "title": "Guns N' Roses - Sweet Child O' Mine",
+        "artist": "Guns N' Roses",
+        "track": "Sweet Child O' Mine"
+      }
+    },
+    {
+      "name": "no terminator and no apostrophe at all",
+      "block": "StreamTitle='Miles Davis - So What",
+      "expect": {
+        "title": "Miles Davis - So What",
+        "artist": "Miles Davis",
+        "track": "So What"
+      }
+    },
+    {
+      "name": "no terminator, padded out to the 16-byte quantum",
+      "block": "StreamTitle='Rockin' Chair   ",
+      "expect": {
+        "title": "Rockin' Chair"
+      }
+    },
+    {
+      "name": "unterminated empty title is still nothing, not a stray quote",
+      "block": "StreamTitle='",
+      "expect": null
+    },
+    {
+      "name": "station ident with no dash",
+      "block": "StreamTitle='SomaFM Groove Salad';StreamUrl='';",
+      "expect": {
+        "title": "SomaFM Groove Salad"
+      }
+    },
+    {
+      "name": "quotes inside a real title are not a scheduling record",
+      "block": "StreamTitle='Aerosmith - Say \"Yes\" To Love';",
+      "expect": {
+        "title": "Aerosmith - Say \"Yes\" To Love",
+        "artist": "Aerosmith",
+        "track": "Say \"Yes\" To Love"
+      }
+    },
+    {
+      "name": "empty title between items",
+      "block": "StreamTitle='';StreamUrl='';",
+      "expect": null
+    },
+    {
+      "name": "no StreamTitle key at all",
+      "block": "StreamUrl='http://example.invalid';",
+      "expect": null
+    }
+  ]
+}

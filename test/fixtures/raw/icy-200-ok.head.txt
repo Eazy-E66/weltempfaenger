@@ -1,0 +1,10 @@
+ICY 200 OK
+icy-notice1:<BR>This stream requires <a href="http://www.winamp.com">Winamp</a><BR>
+icy-notice2:SHOUTcast Distributed Network Audio Server/Linux v1.9.8<BR>
+icy-name:Fixture Shoutcast v1 Server
+icy-genre:Ambient
+icy-url:http://example.invalid
+content-type:audio/mpeg
+icy-pub:1
+icy-metaint:8192
+icy-br:128

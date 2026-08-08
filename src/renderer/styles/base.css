@@ -1,0 +1,172 @@
+/* Reset + typography. Nothing decorative lives here. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #08090a;
+  color: var(--silk);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   Silkscreen. Tiny, wide-tracked, all caps, never pure white, slightly soft —
+   the way pad-printed ink sits on an anodised surface.
+   ------------------------------------------------------------------------- */
+
+.silk {
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--silk);
+  white-space: nowrap;
+  line-height: 1;
+  /* Ink bleeds a hair into the substrate rather than sitting on a crisp edge. */
+  text-shadow:
+    0 0 0.7px rgba(207, 202, 188, 0.5),
+    0 1px 0 rgba(0, 0, 0, 0.55);
+}
+
+.silk--teal {
+  color: var(--silk-teal);
+  text-shadow:
+    0 0 1.1px rgba(79, 189, 184, 0.45),
+    0 1px 0 rgba(0, 0, 0, 0.6);
+}
+
+.silk--maroon {
+  color: var(--silk-maroon);
+  text-shadow: 0 0 0.7px rgba(138, 54, 48, 0.4);
+}
+
+.silk--dim {
+  color: var(--silk-dim);
+}
+
+/* The tracking curve is a ladder, not a taste: the smaller the type, the wider
+   the track, because pad-printed ink closes up counters at small sizes and the
+   printer opened the tracking to compensate. Five steps, one family. */
+.silk--xxs {
+  font-size: 6.5px;
+  letter-spacing: 0.26em;
+}
+
+.silk--xs {
+  font-size: 7px;
+  letter-spacing: 0.22em;
+}
+
+.silk--lg {
+  font-size: 10px;
+  letter-spacing: 0.15em;
+}
+
+.silk--xl {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+}
+
+/* Instrument figures. A different face from the legends, one weight heavier,
+   tabular so digits do not reflow, and squeezed 10% on the horizontal. */
+.fig {
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  display: inline-block;
+  transform: scaleX(0.9);
+  transform-origin: left center;
+}
+
+/* Titles carry the reference's thin white underline rule. */
+.silk-rule {
+  display: block;
+  border-bottom: 1px solid rgba(207, 202, 188, 0.34);
+  padding-bottom: 3px;
+  margin-bottom: 5px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+   Focus. Visible, but it must not look like a browser default on a 1977 radio:
+   a teal service-technician outline, offset off the control.
+   ------------------------------------------------------------------------- */
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--silk-teal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.knob:focus-visible,
+.jewel:focus-visible,
+.power-btn:focus-visible {
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Scrollbars: machined, not web. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.7);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--light-angle), #4a4c50, #26282b 60%, #1b1d1f);
+  border: 1px solid #0c0d0e;
+  border-radius: 1px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(var(--light-angle), #5d6065, #303236 60%, #202224);
+}

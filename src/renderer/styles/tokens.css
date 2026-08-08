@@ -1,0 +1,223 @@
+/* ===========================================================================
+   Tokens. Materials, not colours.
+
+   LIGHTING MODEL — one dominant source, upper left, roughly 118° from +x.
+   Every bevel, groove, dome and recess in this app agrees with these two
+   constants. If you add a highlight, it goes at --lit-x/--lit-y; if you add a
+   contact shadow, it falls to --shade-x/--shade-y. No exceptions.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   THE SILKSCREEN FACE, BUNDLED.
+
+   Archivo Narrow (Omnibus-Type), SIL Open Font License 1.1. The licence text
+   ships beside the files at ../assets/fonts/OFL.txt and the OFL explicitly
+   permits bundling inside other software. Regenerate with
+   `node tools/make-font.mjs`; that script documents the pinned upstream commit,
+   the subsetter and the exact character set.
+
+   WHY IT IS BUNDLED AT ALL. The stack below used to name only fonts that
+   happen to be installed. Liberation Sans Narrow is on nearly every Linux box
+   and Arial Narrow on most Windows ones — but macOS ships NONE of the first
+   four, so on a Mac the stack fell through to a non-condensed grotesque.
+   Measured in Chromium against this app's own rules (Liberation Sans as the
+   Helvetica-metric stand-in for what macOS actually resolves):
+
+       .silk 8.5px/0.17em hint line   317.7px -> 368.7px   +16.0%
+       .annun__act 9px/0.13em         216.2px -> 253.3px   +17.2%
+       .logbook__name 8.5px/0.07em     65.8px ->  78.6px   +19.4%
+       A-Z advance @100px            1444.1px -> 1761.3px  +22.0%
+
+   97% of this app's text is 6.5-9.5px tracked caps inside fixed-width plates,
+   so that is labels reflowing and clipping, on a platform nobody on this
+   project can test. A layout failure, not a taste one.
+
+   WHY THIS FACE. Chosen by measurement over eight open-licensed condensed
+   candidates (Barlow Condensed, Barlow Semi Condensed, Fira Sans Condensed,
+   IBM Plex Sans Condensed, Asap Condensed, Archivo Narrow, Roboto Condensed):
+   Archivo Narrow is the only one metrically indistinguishable from Liberation
+   Sans Narrow, which is what this layout was designed and tuned against.
+   A-Z advance @100px: 1444.14 vs 1444.31 (+0.01%). Every real label in the app
+   measures within 0.7%. Bundling it therefore does not move the Linux layout,
+   and it hands macOS and Windows that same layout instead of a 16% wider one.
+
+   Two weights, because the panel genuinely uses 700 (.annun__head,
+   .logbook__name, .plate__hint.is-urging). Shipping only 400 would hand those
+   to Chromium's synthetic emboldener. ~12.5 kB each, WOFF1.
+
+   The subset deliberately does NOT map anything outside Latin/Latin-Ext-A/B and
+   the punctuation the UI emits. An unmapped codepoint falls through to the next
+   family in the stack, which is the right behaviour for a Cyrillic or CJK
+   station name; a mapped-but-empty one would render as a blank box.
+
+   `font-display: block` — the file is inside the bundle, so it resolves without
+   a network round trip and there is nothing to swap in late. Blocking simply
+   removes any chance of a first frame painted at fallback metrics.
+   ------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Archivo Narrow Subset';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('../assets/fonts/archivo-narrow-400-subset.woff') format('woff');
+}
+@font-face {
+  font-family: 'Archivo Narrow Subset';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('../assets/fonts/archivo-narrow-700-subset.woff') format('woff');
+}
+
+:root {
+  /* --- the one light ----------------------------------------------------- */
+  --lit-x: 31%;
+  --lit-y: 21%;
+  --shade-x: 72%;
+  --shade-y: 82%;
+  --light-angle: 118deg;   /* for linear sheens */
+  --light-conic: 300deg;   /* 'from' angle putting the hot spot upper-left */
+
+  /* --- brushed aluminium shell ------------------------------------------- */
+  --alu-base:    #8f8b81;
+  --alu-lo:      #5d5a53;
+  --alu-hi:      #cdc7b8;
+  --alu-edge-hi: #e6e0d0;
+  --alu-edge-lo: #3c3a35;
+  --alu-warm:    #a09a8c;
+
+  /* --- matte black control panel ----------------------------------------- */
+  --panel-base:  #191a1c;
+  --panel-lo:    #0d0e0f;
+  --panel-hi:    #26282b;
+  --panel-edge:  #08090a;
+
+  /* --- chrome ------------------------------------------------------------ */
+  --chr-1: #55565b;
+  --chr-2: #b9bbc1;
+  --chr-3: #f2f3f6;
+  --chr-4: #7d7f85;
+  --chr-5: #2f3034;
+
+  /* --- silkscreen -------------------------------------------------------- */
+  --silk:        #cfcabc;
+  --silk-dim:    #8e8a80;
+  --silk-teal:   #4fbdb8;
+  --silk-teal-d: #2c7b78;
+  --silk-maroon: #8a3630;
+
+  /* --- lamps and jewels --------------------------------------------------- */
+  --lamp-amber:   #ffab3d;
+  --lamp-amber-d: #7a4a10;
+  --lamp-cream:   #f6ecd2;
+  --lamp-cream-d: #7d745c;
+  --lamp-red:     #d8342a;
+  --lamp-red-d:   #4d0f0c;
+  --lamp-power:   #ff3b2f;
+
+  /* --- dial backlight ----------------------------------------------------- */
+  --dial-lamp:      #ffd79a;
+  --dial-face:      #cfc4a8;
+  --dial-face-dark: #3a352c;
+  --dial-ink:       #24211b;
+  --dial-pointer:   #e02a1c;
+  --blip:           #ffb02e;
+
+  /* --- meter ---------------------------------------------------------------
+     Vermilion, orange-shifted: the pigment a 1977 meter face actually used.
+     Never a web red. The -spread pair is the ink that bloomed past the
+     squeegee's edge, so it is a shade off the ink it came from. */
+  --meter-face-hi: #f4ecd8;
+  --meter-face-lo: #d9cfb4;
+  --meter-ink:     #241f16;
+  --meter-red:        #b23327;
+  --meter-red-spread: #a8402f;
+  --meter-teal:        #2c7a76;
+  --meter-teal-spread: #2f7f78;
+  --meter-dim:         #6f6852;
+
+  /* --- backlit LCD readout (dark segments on a lit warm ground) ----------- */
+  --lcd-ground-hi: #d9bd82;
+  --lcd-ground-lo: #a9884d;
+  --lcd-ink:       #1e1708;
+  --lcd-ink-dim:   #6a5628;
+
+  /* --- now-playing plaque (PSP reference: dark text on pale silver-blue) --- */
+  --np-hi:  #d6dee6;
+  --np-lo:  #a5b4c3;
+  --np-ink: #161d25;
+
+  /* --- lid: cyan line-art on black ---------------------------------------- */
+  --lid-base:  #0b0d0e;
+  --lid-cyan:  #3fd3d0;
+  --lid-cyan-d:#186b6a;
+  --lid-grid:  #123c3d;
+  --lid-ink:   #9fe3e1;
+
+  /* --- geometry ----------------------------------------------------------- */
+  --r-shell: 14px;
+  --r-panel: 6px;
+  --r-window: 4px;
+  --hairline: 1px;
+
+  /* --- type ----------------------------------------------------------------
+     Three jobs, and they must not be one face. Instrument printing never sets
+     the figures on a dial in the same cut as the legends around it: the figures
+     are a condensed, heavier, tabular numeral face and the legends are the
+     silkscreen. `--font-num` used to alias `--font-silk` exactly, which meant
+     the app had no numeral face at all — the dial figures, the meter figures
+     and the word PRESELECTOR were all one thing.
+
+     `--font-num` therefore leads with a DIFFERENT family. Every rule that uses
+     it also sets weight 600, tabular figures and a 0.9 horizontal squeeze; that
+     combination is the "numeral cut". It is a printer's trick standing in for a
+     real condensed numeral face, but the family separation is real, so figures
+     and legends are visibly different faces.
+
+     --font-silk now LEADS with the bundled face (see the @font-face block
+     above), and the old list stays behind it unchanged as fallback. Nothing
+     about the Linux rendering moves: Archivo Narrow and Liberation Sans Narrow
+     measure the same to 0.01% on A-Z.
+
+     --font-num does NOT lead with it, on purpose — leading with it would make
+     the figures and the legends one face again on every platform, which is the
+     exact bug the paragraph above describes. It is appended LAST instead, ahead
+     of `ui-sans-serif` only. On Linux and Windows the earlier families still
+     win and nothing changes; on macOS, where every one of them is absent, the
+     figures get a condensed face rather than a 22%-wider system grotesque that
+     would overrun the dial and the meter. On that one platform the two stacks
+     do converge on the same family, and the numeral cut then rests on weight
+     600 + tabular + scaleX(0.9) alone. Losing part of the distinction on macOS
+     is a smaller failure than the figures not fitting their plates. */
+  --font-silk: 'Archivo Narrow Subset',
+               'Liberation Sans Narrow', 'Nimbus Sans Narrow', 'Arial Narrow',
+               'Roboto Condensed', 'Helvetica Neue', ui-sans-serif, sans-serif;
+  --font-ui:   'Liberation Sans', 'Nimbus Sans', 'Helvetica Neue', ui-sans-serif, sans-serif;
+  --font-num:  'Ubuntu Sans', 'Nimbus Sans Narrow', 'Liberation Sans Narrow',
+               'Arial Narrow', 'Archivo Narrow Subset', ui-sans-serif, sans-serif;
+
+  /* --- motion --------------------------------------------------------------
+     How long the register sheet takes to travel its slot. 680 ms was already
+     slower than any mechanism this size, and the swing it drove measured 4.2 s
+     end to end on the shipping build. A drawer this size is out in a fifth of a
+     second: fast off the mark, decelerating hard into the stop, which is a
+     sheet meeting its end rail rather than a panel easing to a halt. */
+  --lid-ms: 200ms;
+  /* Measured off the curve, not chosen off a list: at a quarter of the travel
+     time the sheet is 35% of the way down, at half 81%, at three quarters 96%.
+     It takes up its slack, runs, and stops firmly against the end rail. The
+     obvious alternative, `cubic-bezier(.16,.84,.24,1)`, is 79% down in the first
+     quarter — which is not a mechanism starting, it is a jump with a tail. */
+  --lid-ease: cubic-bezier(.33, 0, .15, 1);
+}
+
+/* The dial lamp being off is a real electrical state, not a theme. */
+:root[data-lamp='off'] {
+  --dial-lamp: #6a6152;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lid-ms: 1ms;
+  }
+}

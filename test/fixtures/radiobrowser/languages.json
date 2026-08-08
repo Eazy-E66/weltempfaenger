@@ -1,0 +1,10 @@
+[
+  { "name": "english", "iso_639": "en", "stationcount": 3393 },
+  { "name": "spanish", "iso_639": "es", "stationcount": 2044 },
+  { "name": "german", "iso_639": "de", "stationcount": 1433 },
+  { "name": "french", "iso_639": "fr", "stationcount": 700 },
+  { "name": "brazilian portuguese", "iso_639": null, "stationcount": 118 },
+  { "name": "#english", "iso_639": null, "stationcount": 3 },
+  { "name": "", "iso_639": null, "stationcount": 12 },
+  { "name": "z", "iso_639": null, "stationcount": 2 }
+]

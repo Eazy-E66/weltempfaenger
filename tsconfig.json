@@ -1,0 +1,39 @@
+{
+  // Base config: shared compiler options + an editor-facing umbrella project.
+  //
+  // Nothing is emitted from here. The two real build targets are:
+  //   tsconfig.main.json     -> tsc  -> dist/{main,preload,shared}  (CommonJS, Node 20)
+  //   tsconfig.renderer.json -> vite -> dist/renderer               (ESM, Chromium 130+)
+  //
+  // Both extend this file and override module/lib/types for their environment.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+
+    // Strictness. `strict` is on as required. The extra-aggressive flags
+    // (noUncheckedIndexedAccess, exactOptionalPropertyTypes) are deliberately
+    // left OFF: they change what valid code looks like across src/, and this
+    // slice does not own src/.
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "useDefineForClassFields": true,
+
+    "noEmit": true,
+    "sourceMap": true
+  },
+
+  // Editor/IDE umbrella only — `npm run typecheck` uses the two configs below,
+  // not this one. Kept wide so tests and both processes resolve in-editor.
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist", "release"]
+}

@@ -1,0 +1,677 @@
+/* ===========================================================================
+   THE CASE — shell, speaker column, control panel, and the reflow.
+
+   The chassis fills the window. Edge to edge, at every size and every shape.
+   There is no fixed aspect and no letterbox: a native application's window
+   belongs to the user, and dead surround around a skeuomorphic panel is the app
+   admitting it is a picture of a radio rather than a radio.
+
+   Surplus space goes into the object's own anatomy — height raises the lid,
+   width brings the cabinet's side cheeks and carry handles into view, size
+   raises the printed density of the dial. See `reflow()` in ui/index.ts, which
+   is the only place those three rules live.
+   =========================================================================== */
+
+.faceplate-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  /* No padding and no centring: the case is the surface, not a picture on one.
+     The desk gradient survives only as the ground behind a scaled-down panel at
+     sizes below the minimum, where uniform scale beats an illegible squeeze. */
+  background: #0a0b0c;
+}
+
+.shell {
+  position: relative;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* The texture layers blend with their own surface and nothing else. Without
+     an explicit isolation the blend group escapes to the root stacking context,
+     which lets a soft-light grain layer wash over anything painted later —
+     including the lid. Every surface that carries a texture isolates. */
+  isolation: isolate;
+  box-shadow:
+    /* the machined top-left edge catching the light */
+    inset 0 1px 0 rgba(255, 250, 235, 0.42),
+    inset 1px 0 0 rgba(255, 250, 235, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    inset -1px 0 0 rgba(0, 0, 0, 0.45);
+}
+
+/* The bottom trim, with the rubber feet showing through at the corners. */
+.feet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  pointer-events: none;
+  background-image:
+    linear-gradient(90deg, #101112 0 52px, rgba(16, 17, 18, 0) 78px, rgba(16, 17, 18, 0) calc(100% - 78px), #101112 calc(100% - 52px) 100%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.75));
+  box-shadow: inset 0 1px 0 rgba(255, 250, 235, 0.14);
+}
+
+/* The bay the raised lid stands in. Height comes from the reflow: it is real
+   surplus, never manufactured, so a window with no spare height has no bay. */
+.shell__bay {
+  flex: 0 0 auto;
+  height: var(--lid-bay, 0px);
+  min-height: 0;
+  pointer-events: none;
+}
+
+.shell__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  padding: 8px 12px 4px;
+  grid-template-columns: var(--cheek-w, 0px) minmax(148px, 23%) minmax(0, 1fr) var(--cheek-w, 0px);
+  position: relative;
+}
+
+/* ---------------------------------------------------------------------------
+   The case cheeks and their fold-out carry handles.
+
+   On the reference these are chunky brackets bolted to each end of the case,
+   and they are what a very wide window gets instead of empty desk: more radio.
+   At narrow widths the reflow sets their width to zero and they vanish without
+   a breakpoint.
+   ------------------------------------------------------------------------- */
+
+.cheek {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: inline-size;
+  background-color: var(--alu-base);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 235, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* The edge radius where the front face wraps round to the cheek: a bright roll
+   on the arris, then the returning face falling away. The face's overall
+   brightness is not set here — it comes from `filter: brightness(--face-left)`
+   in materials.css, which is `ambient + N·L` from the one light vector. */
+.cheek--l {
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.42) 0%,
+      rgba(0, 0, 0, 0.12) 8%,
+      rgba(255, 250, 236, 0.1) 46%,
+      rgba(255, 252, 240, 0.34) 82%,
+      rgba(255, 252, 240, 0.5) 93%,
+      rgba(120, 116, 106, 0.5) 100%
+    ),
+    radial-gradient(60% 120% at 90% 14%, rgba(255, 248, 230, 0.22), rgba(0, 0, 0, 0) 62%);
+}
+.cheek--r {
+  background-image:
+    linear-gradient(
+      90deg,
+      rgba(120, 116, 106, 0.5) 0%,
+      rgba(255, 252, 240, 0.3) 7%,
+      rgba(255, 250, 236, 0.06) 22%,
+      rgba(0, 0, 0, 0.16) 62%,
+      rgba(0, 0, 0, 0.46) 100%
+    ),
+    radial-gradient(60% 120% at 8% 12%, rgba(255, 248, 230, 0.14), rgba(0, 0, 0, 0) 58%);
+}
+
+/* The handle: a moulded satin-plastic bracket standing off the cheek on two
+   fasteners. Deliberately a different material from the shell — plastic has a
+   broad low-exponent specular with a soft edge and no anisotropy, so shading it
+   like brushed metal is what makes a bolted-on part read as painted-on.
+
+   The strap is a real fold-out bracket, not a pill: mounting feet top and
+   bottom, a pivot knuckle just inboard of each, and a ribbed grip between them.
+   All of that is drawn by `barSprite` in ui/textures2.ts, including its own
+   antialiased outline — there is no `border-radius` clip here, because clipping
+   an unantialiased canvas is what stair-steps the corners.
+
+   The inset is 12% rather than 22%: at the width the cheek actually gets, a
+   22% inset left an 11 px strap with no room for the hardware bolted to it. */
+.cheek__handle {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 20%;
+  bottom: 20%;
+  z-index: 1;
+}
+/* The fastener sits at the centre of the mounting foot. `HANDLE_FOOT_PX` in
+   ui/materials.ts is 24, so the foot's centre is 12 px in from the strap's end
+   and a 9 px head starts 7.5 px in. Anchoring in % + px rather than in % alone
+   is what keeps the screw on the pad when a wider window grows the cheek. */
+.cheek__boss {
+  position: absolute;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  display: block;
+  z-index: 2;
+  pointer-events: none;
+}
+.cheek__boss--t { top: calc(20% + 7.5px); }
+.cheek__boss--b { bottom: calc(20% + 7.5px); }
+/* A cheek narrower than its own hardware prints nothing rather than a smear.
+   The guard used to sit at 34 px, which is above every cheek the shipping
+   window ever gets — the cheeks start at 1180 px and grow at 0.42 of the
+   surplus halved, so 1280×820 gets 21 px and the reference's carry handles were
+   simply absent at the default size. It now sits just under the narrowest
+   strap the hardware still reads on: a 16 px cheek gives a 12 px strap, which
+   is a 9 px fastener with a margin either side. */
+@container (max-width: 15px) {
+  .cheek__handle,
+  .cheek__boss {
+    display: none;
+  }
+}
+
+.shell__footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 18px 7px;
+  opacity: 0.85;
+}
+
+/* --- reflow ---------------------------------------------------------------- */
+
+.shell[data-width='wide'] .shell__body {
+  grid-template-columns: var(--cheek-w, 0px) minmax(168px, 21%) minmax(0, 1fr) var(--cheek-w, 0px);
+}
+.shell[data-width='compact'] .shell__body {
+  grid-template-columns: 0 104px minmax(0, 1fr) 0;
+  gap: 8px;
+  padding: 8px 9px 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Speaker column
+   ------------------------------------------------------------------------- */
+
+.speaker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.speaker__brand {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 2px 0;
+}
+
+.brand {
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #efe9da;
+  /* Embossed into the aluminium: light from above means a dark lower lip. */
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.65),
+    0 -1px 0 rgba(255, 255, 255, 0.16);
+}
+.shell[data-width='compact'] .brand {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.grille {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 70px;
+  border-radius: 3px;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.4),
+    inset 0 -1px 0 rgba(255, 250, 235, 0.14);
+}
+/* The grille is punched out of the same sheet as the shell, so it must not
+   carry a second broad sheen of its own — that would print a seam down the
+   case. The punched canvas above it carries the shared grain into the web
+   between the holes for the same reason. */
+.grille__sheet.mat-alu {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+  background-color: #8a867d;
+  background-image: none;
+}
+.grille__field {
+  z-index: 1;
+}
+
+.speaker__model {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+/* Four parts across a column that is 23% of the case: the socket and the three
+   tone controls. `nowrap` made that a promise the column could not keep — at
+   860x560 the row wanted 240 px in a 227 px column, so VOLUME hung over the
+   edge of the speaker panel and onto the control panel beside it. It wraps
+   instead. The column is the tallest thing on the case and the grille above
+   gives the room, so a second line costs nothing that is not already spare. */
+.tone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  column-gap: 4px;
+  row-gap: 6px;
+  padding: 6px 2px 4px;
+  flex: 0 0 auto;
+}
+.tone .knob-unit {
+  --kd: 62px;
+}
+.jack-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 12px;
+}
+
+.shell[data-width='compact'] .tone {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.shell[data-width='compact'] .tone .knob-unit {
+  --kd: 58px;
+}
+/* The socket stays. It was dropped at compact widths on the assumption that
+   there was no room for it, and there is: the tone group is `flex: 0 0 auto`
+   under a grille that flexes, so it takes the height it needs and the grille
+   gives it — measured at 700x500, the group needed 294 px of an available 447.
+   A case does not lose its headphone socket when the window narrows, and this
+   one is drawn precisely because the real object has one. */
+.shell[data-width='compact'] .jack-unit {
+  padding-top: 4px;
+}
+.shell[data-width='compact'] .speaker__model .silk:first-child {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Control panel
+   ------------------------------------------------------------------------- */
+
+.panel {
+  position: relative;
+  border-radius: var(--r-panel);
+  padding: 11px 13px 9px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.panel__grid {
+  position: relative;
+  height: 100%;
+  display: grid;
+  gap: 9px 14px;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  /* 110, not 90. `.drum` has a floor of its own (86 px — below that a drum dial
+     stops reading as a barrel behind glass) and the head above it carries the
+     log strip, so a row that could shrink to 90 was a row the dial overflowed
+     downward out of. Measured at 860x560, the stated minimum: the drum's bottom
+     edge crossed 3 px into the flywheel's row. The grid's own floor now covers
+     what the instrument inside it actually needs, and the reflow answers the
+     extra height the way it answers all of it — off the lid's bay first, and
+     then by scaling the chassis. */
+  grid-template-rows: max-content max-content minmax(110px, 1fr) max-content;
+  grid-template-areas:
+    'power meter genre aux'
+    'info  info  info  info'
+    'dial  dial  dial  tune'
+    'sw    sw    sw    tune';
+}
+
+.zone {
+  min-width: 0;
+  min-height: 0;
+}
+.zone--power {
+  grid-area: power;
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+}
+.zone--meter {
+  grid-area: meter;
+  display: flex;
+  align-items: center;
+}
+.zone--genre {
+  grid-area: genre;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.zone--aux {
+  grid-area: aux;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.zone--info {
+  grid-area: info;
+}
+.zone--dial {
+  grid-area: dial;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+/* The memory jewels sit directly above the tuning knob, in the column the dial
+   window does not reach — the same place the reference puts MEMO-LITE, and the
+   place your other hand already is while you are tuning. */
+.zone--tune {
+  grid-area: tune;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 2px;
+}
+.sw-group--memory {
+  align-items: center;
+  padding-top: 2px;
+}
+.sw-group--memory .silk-rule {
+  align-self: stretch;
+  text-align: center;
+}
+/* NOTHING IN THIS COLUMN MAY BE WIDER THAN THE INSTRUMENT IN IT.
+   Column 4 of the panel grid is `max-content`, so its width is whatever the
+   widest thing standing in it asks for — and the switch row two rows down pays
+   for every pixel of that, because it has columns 1–3 and nothing to spare. The
+   flywheel is 150 px. The cap is set just above it, so a legend under the memory
+   keys sets to fit rather than quietly taking 57 px off the row below and
+   pushing the STATIONS key onto the flywheel. See `.presets__legend` in
+   panel-voice.css, which is the line that was doing it. */
+.zone--tune > * {
+  max-width: 156px;
+}
+/* The switch row.
+ *
+ * NOT `space-between`. Spreading is how a wide window used to buy dead black:
+ * the gap between the WIDE key and the LIGHT button measured 14 px at 880 px of
+ * window, 135 px at 1280 and 300 px at 1918 — +638 px of window for +286 px of
+ * nothing, on an object whose defining quality is density. The groups now hold
+ * their spacing and the surplus goes to the printed band plan, which answers
+ * width with graduations. */
+.zone--sw {
+  grid-area: sw;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  /* 12, not 18. This row is the panel's tightest: AFC, BANDWIDTH, the printed
+     band plan and the three keys have to live inside columns 1–3, and at the
+     860x560 minimum they wanted 55 px more than the column had — so the STATIONS
+     key ran out from under the row and sat on top of the flywheel. Three gaps at
+     18 px was 54 of those 55. The groups still hold their spacing (the note
+     above is about SPREADING them, which is a different thing); the plan still
+     takes every pixel of genuine surplus, because it is the flexible item. */
+  gap: 12px;
+  flex-wrap: nowrap;
+  padding-right: 6px;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   THE SHORT WAVE BAND PLAN — silkscreen, not a control.
+
+   The twelve ITU broadcasting allocations at their true logarithmic positions
+   between 1.8 and 30 MHz, over a graduated rule whose tick pitch is fixed — so
+   a wider panel prints MORE graduations rather than the same ones further
+   apart. Lit, like everything else, from the upper left: the rule is a shallow
+   groove milled into the panel, dark along its top wall and catching the lamp
+   on its bottom one.
+   ------------------------------------------------------------------------- */
+
+.sw-plan {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 1px;
+  container-type: inline-size;
+}
+/* Legends are dropped by pairs as the plan narrows, and the rule keeps its
+   graduations either way — a printed scale that will not fit its legends drops
+   legends, it does not shrink them into a smear. */
+@container (max-width: 420px) {
+  .plan__lab--minor { display: none; }
+}
+@container (max-width: 215px) {
+  .plan__lab { display: none; }
+}
+/* …and below the width its own title needs, the title goes too. It is 187 px of
+   nowrap silkscreen over a `text-overflow: clip`, so a narrower plan printed
+   `SHORT WAVE BAND PLAN · 1` — a legend cut off mid-figure, which is worse than
+   no legend at all. The graduated rule underneath is the information; the title
+   is the caption, and a caption that will not fit is not printed. */
+@container (max-width: 190px) {
+  .sw-plan .silk-rule { display: none; }
+}
+.sw-plan .silk-rule {
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.plan {
+  position: relative;
+  height: 26px;
+  min-width: 0;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #0a0b0c 0%, #131518 62%, #191b1e 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.85),
+    inset 0 -1px 0 rgba(255, 250, 235, 0.11);
+  overflow: hidden;
+}
+
+/* Graduations. Minor every 5 px, major every 25 px, so the count is a function
+   of the width the panel actually got. */
+.plan__rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 9px;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(207, 202, 188, 0.42) 0 1px,
+      rgba(0, 0, 0, 0) 1px 25px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(207, 202, 188, 0.2) 0 1px,
+      rgba(0, 0, 0, 0) 1px 5px
+    );
+  background-size: 100% 9px, 100% 5px;
+  background-repeat: no-repeat;
+  background-position: 0 0, 0 0;
+}
+
+/* One printed block per broadcasting band. Hairline-narrow, because that is
+   how wide 5900–6200 kHz actually is on a 1.8–30 MHz scale. */
+.plan__seg {
+  position: absolute;
+  top: 2px;
+  height: 11px;
+  min-width: 2px;
+  background: rgba(79, 189, 184, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(79, 189, 184, 0.55);
+}
+.plan__lab {
+  position: absolute;
+  bottom: 1px;
+  transform: translateX(-50%);
+  font-family: var(--font-num);
+  font-size: 8px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: rgba(207, 202, 188, 0.72);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Where the drum is cut right now. Off the plan when the band is FM or MW,
+   because those are not on a shortwave band plan and pretending otherwise
+   would be the readout asserting something it does not know. */
+.plan__cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: none;
+  background: rgba(255, 176, 46, 0.16);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 176, 46, 0.85),
+    inset -1px 0 0 rgba(255, 176, 46, 0.85);
+}
+.plan__cursor.is-on {
+  display: block;
+}
+
+.zone--aux .knob-unit {
+  --kd: 66px;
+}
+
+.sw-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sw-btns {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.lever-unit,
+.piano-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dial-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+/* --- panel reflow ---------------------------------------------------------- */
+
+.shell[data-width='compact'] .panel {
+  padding: 9px 9px 7px;
+}
+.shell[data-width='compact'] .panel__grid {
+  gap: 8px 10px;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-rows: max-content max-content max-content minmax(106px, 1fr) max-content;
+  grid-template-areas:
+    'meter power aux'
+    'genre genre genre'
+    'info  info  info'
+    'dial  dial  dial'
+    'tune  sw    sw';
+}
+.shell[data-width='compact'] .zone--aux {
+  justify-content: flex-end;
+  gap: 8px;
+}
+.shell[data-width='compact'] .zone--power {
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+.shell[data-width='compact'] .zone--meter {
+  padding-right: 0;
+}
+.shell[data-width='compact'] .zone--aux .knob-unit {
+  --kd: 56px;
+}
+/* At this size the silkscreen is wider than the knob it names, so the two
+   legends collide unless the pair is given room and the type is stepped down. */
+.shell[data-width='compact'] .zone--aux {
+  gap: 22px;
+}
+.shell[data-width='compact'] .zone--aux .knob-label {
+  font-size: 7px;
+  letter-spacing: 0.1em;
+}
+.shell[data-width='compact'] .zone--sw {
+  justify-content: flex-start;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+/* One more notch out of the tightest row, at the width where it is tightest.
+   Between 940 and 1240 px of chassis the switch row has the least column and
+   the most in it; below 940 the panel reflows and the row gets the full width
+   to itself. Measured at 800x540 — under the supported minimum, where the
+   chassis is already being scaled — the STATIONS key still crossed 10 px into
+   the flywheel. Ten px is what these two lines give back. */
+.shell[data-width='standard'] .zone--sw {
+  gap: 8px;
+}
+.shell[data-width='standard'] .sw-btns {
+  gap: 5px;
+}
+
+/* Below this width the plan's twelve legends collide, so it is not printed at
+   all rather than printed as a smear. */
+.shell[data-width='compact'] .sw-plan {
+  display: none;
+}
+.shell[data-width='compact'] .genre__window {
+  max-width: none;
+}
+.shell[data-width='compact'] .zone--tune {
+  flex-direction: row-reverse;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 14px;
+}
+.shell[data-width='compact'] .zone--sw {
+  gap: 12px;
+  align-items: center;
+}
+.shell[data-width='compact'] .power {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.shell[data-width='compact'] .power__bracket {
+  display: none;
+}

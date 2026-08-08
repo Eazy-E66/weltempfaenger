@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+release/
+
+# Packaging caches (downloaded electron zips for the macOS cross-build, etc.)
+build/.cache/
+.cache/
+
+# Generated icons are COMMITTED on purpose — build/icon.png, build/icon.ico,
+# build/icon.icns and build/icons/ are inputs to electron-builder and must be
+# present in a fresh clone for CI to package. Regenerate: node tools/make-icons.mjs
+
+# Logs / debris
+*.log
+npm-debug.log*
+yarn-error.log*
+.npm/
+
+# Test / coverage output
+coverage/
+.vitest/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Stray files at repo root that predate the project or are one-off build output.
+# Ignored rather than deleted — they are not mine to remove.
+/10-pop.png
+/10-pop.png.discard.png
+/index-C0mA4ju0.css
+/prompt.txt
+
+# Build-process evidence: 75 MB of screenshots and a generated status page.
+# Kept locally, not shipped to the public repo. The README's images live in docs/media/.
+/docs/progress/

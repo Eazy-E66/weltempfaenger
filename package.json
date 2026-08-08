@@ -1,0 +1,33 @@
+{
+  "name": "psppcpr",
+  "productName": "Weltempfänger",
+  "version": "0.1.0",
+  "description": "A desktop shortwave receiver that happens to stream internet radio.",
+  "main": "dist/main/index.js",
+  "license": "MIT",
+  "author": "PSPPCPR <maintainer@psppcpr.invalid>",
+  "homepage": "https://github.com/psppcpr/weltempfaenger",
+  "scripts": {
+    "dev": "vite",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "pack:linux": "electron-builder --linux --publish never",
+    "pack:win": "electron-builder --win --publish never",
+    "pack:mac": "node tools/pack-mac.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

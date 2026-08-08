@@ -1,0 +1,367 @@
+name: build
+
+# Native packaging on all three platforms. This is the only path to genuinely
+# verified Windows and macOS artifacts: the dev box is Linux with no wine and
+# no Mac, so locally those two targets are cross-built and never launched.
+#
+# Every command below is the same one used locally, except where a comment says
+# otherwise.
+#
+# The SMOKE steps are what make "it launches" a checkable claim rather than an
+# assertion: after packaging, each job starts its OWN packaged binary, waits for
+# the app's test-hook channel (PSPPCPR_TEST_HOOKS=1, see
+# src/main/proxy/test-routes.ts), proves a window with a live renderer exists,
+# and screenshots it. See tools/smoke.mjs.
+#
+# ---------------------------------------------------------------------------
+# EXACTLY WHAT THIS WORKFLOW PROVES, AND WHAT IT DOES NOT
+# ---------------------------------------------------------------------------
+# Three rungs, and it matters which one a given platform is standing on. The
+# README's platform matrix is this list; keep the two in sync.
+#
+#   BUILT           a packaging run produced an artifact with the right shape.
+#                   Structural checks only: magic numbers, Mach-O per arch, an
+#                   Info.plist that parses, app.asar contents. No code ran.
+#
+#   LAUNCHED        the packaged binary was executed on that OS, the main
+#                   process came up, the RENDERER loaded and published a real
+#                   PlaybackState, and a screenshot came back with pixels in it.
+#                   This is what the smoke steps below add.
+#
+#   PLAYBACK TESTED audio was decoded and heard.
+#
+# BEFORE this workflow existed, Windows and macOS were BUILT and nothing more:
+# both are cross-built on a Linux dev box with no wine and no Mac, so no one had
+# ever seen either of them start. The smoke steps move both to LAUNCHED. That is
+# the entire point of this file, and it is a genuine change in what is known —
+# a white-screen boot, a broken preload script or an asar path bug that only
+# manifests on Windows path separators would all pass "an artifact was produced"
+# and fail here.
+#
+# That last claim was MEASURED, not assumed. Repacking the Linux app.asar with a
+# deliberately neutered dist/main/preload.js — an app that can never play audio,
+# load settings or reach the directory — still passed every DOM-shaped
+# assertion: the window painted, .faceplate-root and .panel__grid mounted, the
+# stylesheets loaded, the host-failure card did NOT appear, and the screenshot
+# came back at 1.1 MB of real pixels. 30 of 32 assertions held. The only two
+# that failed were the PlaybackState pair, which is why they exist: they are the
+# difference between "a window opened" and "the app works". Do not drop them.
+#
+# This workflow CANNOT reach PLAYBACK TESTED, on ANY of the three platforms.
+# GitHub-hosted runners have no audio device:
+#   - ubuntu-latest has no sound server at all (no PulseAudio/PipeWire session);
+#     Chromium falls back to a null ALSA sink or fails to open a device.
+#   - windows-latest and macos-latest run headless-ish service sessions whose
+#     audio endpoints are absent or muted stubs.
+# So an <audio> element can be told to play and may even report that it is
+# playing, while not one sample reaches a speaker. Asserting "playback works"
+# from that would be a lie with a green checkmark on it, which is worse than an
+# untested row in a table.
+#
+# Playback is therefore proven exactly one way: by a human, on a real machine,
+# with tools/verify-audible.mjs. On this project that has been done on Linux
+# only. Windows and macOS stay honestly marked "not playback tested" in the
+# README until someone with that hardware runs it and says otherwise.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# Nothing here publishes, comments or tags. Read-only is all it needs, and an
+# explicit block stops a permissive repo/org default from applying.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # 45 was tight for macOS: that job packages FOUR artifacts (dmg + zip, x64 +
+    # arm64), each of which re-downloads and re-lays-out a full Electron, and
+    # now also launches the app. 60 leaves headroom without hiding a hang.
+    timeout-minutes: 60
+
+    strategy:
+      # One platform failing must not hide the state of the other two.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+          - os: macos-latest
+            platform: mac
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 22, not 20. Three reasons, in order of weight:
+          #   1. Node 20 left even maintenance support on 2026-04-30. Building a
+          #      release on an EOL runtime that receives no security fixes is not
+          #      a thing to do deliberately.
+          #   2. devDependencies pin @types/node ^22, so the typecheck already
+          #      describes a Node 22 stdlib. Running the build on 20 means tsc
+          #      approves APIs the runtime may not have.
+          #   3. Everything in the toolchain accepts it — checked in
+          #      node_modules/*/package.json `engines`:
+          #        vite 6.4.3           ^18.0.0 || ^20.0.0 || >=22.0.0
+          #        vitest 2.1.9         ^18.0.0 || >=20.0.0
+          #        electron-builder 25  >=14.0.0
+          #        electron 33          >= 12.20.55
+          #      so 22 is inside every declared range; nothing forces 20.
+          node-version: 22
+          cache: npm
+
+      # Electron's prebuilt binaries are ~100 MB per platform and are fetched by
+      # both `electron` postinstall and electron-builder.
+      #
+      # The path list deliberately names all three OSes at once. That is safe,
+      # not sloppy: actions/cache resolves each entry with @actions/glob, entries
+      # that match nothing are skipped with a warning, and the step only errors
+      # if NOTHING at all resolves — which cannot happen here, because on every
+      # runner exactly one family of these paths is created by `npm ci` before
+      # the post-job save runs. (On Linux the Windows entries are additionally
+      # inert because `\` is a glob escape there, not a separator.)
+      #
+      # The key is per-OS and per-lockfile: `runner.os` keeps a Linux Electron
+      # out of a Windows job, and hashFiles(package-lock.json) is what actually
+      # pins the Electron version, so bumping Electron invalidates the cache.
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Deterministic and dependency-free, so regenerating is cheaper than
+      # debugging a stale or forgotten icon. Output is byte-identical to what is
+      # committed under build/.
+      - name: Generate icons
+        run: node tools/make-icons.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # -- packaging ---------------------------------------------------------
+
+      - name: Package Linux (AppImage + deb)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --publish never
+
+      # No target is named on purpose: electron-builder builds every target
+      # declared under `win.target` in electron-builder.yml (portable + zip).
+      # Naming one here would silently stop producing the other the next time
+      # that list changes — which is exactly what the previous `--win portable`
+      # did, while the comment above it claimed no override was needed.
+      #
+      # The ONE thing a real Windows host adds is rcedit: it runs natively, so
+      # the inner electron.exe gets our icon and VERSIONINFO stamped too (a Linux
+      # build only gets them on the outer self-extracting exe). That is what
+      # signAndEditExecutable flips on.
+      #
+      # The `-c.` override chain is verified against the installed
+      # electron-builder 25.1.8, because it is easy to get wrong:
+      #   1. yargs parses `-c.win.signAndEditExecutable=true` into
+      #      {config:{win:{signAndEditExecutable:"true"}}} — note: a STRING.
+      #   2. read-config-file still loads electron-builder.yml and deepAssigns
+      #      the CLI object OVER it, so the rest of the win config survives; the
+      #      override does not replace the file.
+      #   3. config validation runs AJV with `coerceTypes: true`
+      #      (@develar/schema-utils), which turns that "true" into a real
+      #      boolean in place.
+      #   4. app-builder-lib only ever tests `signAndEditExecutable === false`,
+      #      so it would behave correctly even without step 3.
+      # The inverse would be a trap: `-c.win.signAndEditExecutable=false` relies
+      # entirely on step 3, since the string "false" is truthy.
+      - name: Package Windows (all declared win targets)
+        if: matrix.platform == 'win'
+        run: npx electron-builder --win --publish never -c.win.signAndEditExecutable=true
+
+      # electron-builder builds a real DMG here — that is macOS-only tooling
+      # (hdiutil), which is why the Linux fallback is tools/pack-mac.mjs.
+      - name: Package macOS (DMG + zip)
+        if: matrix.platform == 'mac'
+        env:
+          # No Developer ID certificate is available. Without this,
+          # electron-builder searches the keychain and fails the build.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --mac --publish never
+
+      # -- smoke: prove the packaged app actually starts ----------------------
+
+      # ubuntu-latest runners have no display. `electron-builder --linux` does
+      # not care, but LAUNCHING the app does, and Electron has no headless mode
+      # (there is no --headless flag; passing one is a startup error). tools/
+      # smoke.mjs auto-wraps the launch in `xvfb-run -a` when DISPLAY and
+      # WAYLAND_DISPLAY are both unset, so all this step has to guarantee is that
+      # xvfb-run exists. The runner image has shipped it for a long time, but
+      # "has shipped it" is not "will ship it", and the install is a few seconds.
+      - name: Ensure a virtual display (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          if command -v xvfb-run >/dev/null 2>&1; then
+            echo "xvfb-run already present: $(command -v xvfb-run)"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends xvfb
+          fi
+
+      # Deliberately smokes release/linux-unpacked/psppcpr and NOT the AppImage.
+      # An AppImage is a FUSE image, and CI containers routinely lack libfuse2
+      # ("dlopen(): error loading libfuse.so.2"). The unpacked tree is byte-for-
+      # byte what the AppImage and the deb contain, so testing it tests them,
+      # without making the result depend on a kernel module.
+      # (smoke.mjs can still run an .AppImage directly — it adds
+      # --appimage-extract-and-run, which sidesteps FUSE — but there is no reason
+      # to spend the extraction here.)
+      #
+      # SMOKE_NO_SANDBOX: electron-builder only sets the setuid bit on
+      # chrome-sandbox inside the deb/AppImage payloads, so the copy in
+      # linux-unpacked/ is plain 0755 and the SUID sandbox helper refuses to
+      # start. Ubuntu 24 additionally restricts unprivileged user namespaces via
+      # AppArmor, which blocks the namespace fallback. smoke.mjs therefore only
+      # passes --no-sandbox when asked, so a normal developer run still exercises
+      # the sandbox.
+      - name: Smoke the packaged Linux app
+        if: matrix.platform == 'linux'
+        env:
+          SMOKE_NO_SANDBOX: '1'
+        run: node tools/smoke.mjs release/linux-unpacked/psppcpr --timeout=120s --screenshot=release/smoke-linux.png --json
+
+      # release/win-unpacked/*.exe. The path is left to smoke.mjs's discovery on
+      # purpose: the executable is named after productName, so it is literally
+      # `Weltempfänger.exe`, and hard-coding a non-ASCII filename into YAML that
+      # PowerShell then has to quote is a needless way to lose an afternoon.
+      # The unpacked tree is what the portable .exe self-extracts at runtime, so
+      # this exercises the shipped payload without a self-extraction round trip.
+      - name: Smoke the packaged Windows app
+        if: matrix.platform == 'win'
+        shell: bash
+        run: node tools/smoke.mjs --timeout=120s --screenshot=release/smoke-win.png --json
+
+      # Two DIFFERENT macOS gates get confused with each other; only one applies:
+      #
+      #   Gatekeeper / quarantine — NOT a problem here. The `com.apple.
+      #   quarantine` xattr is attached by LaunchServices to files a browser or
+      #   mail client DOWNLOADED. A bundle this runner just produced itself has
+      #   no such xattr, so Gatekeeper never gets involved and no `xattr -dr`
+      #   dance is needed. (An end user downloading the released zip WILL hit it,
+      #   which is what tools/pack-mac.mjs warns about — different situation.)
+      #
+      #   Mandatory code signing on Apple Silicon — IS a problem here, and is a
+      #   separate mechanism. macos-latest is arm64, and the arm64 kernel refuses
+      #   to exec a Mach-O whose signature is absent or broken. electron-builder.
+      #   yml sets `identity: null`, which makes electron-builder skip signing
+      #   outright ("skipped macOS code signing", macPackager sign()), while it
+      #   has already rewritten the bundle's Info.plist and executable name and
+      #   thereby invalidated Electron's upstream seal.
+      #
+      # `codesign -s -` is an AD-HOC signature: no certificate, no secret, no
+      # keychain, nothing this repo lacks. It is precisely the command a user
+      # runs by hand today to make an unsigned local build launchable.
+      #
+      # SCOPE, so the artifacts stay honest: the .dmg and .zip were produced from
+      # the unsigned bundle by the packaging step ABOVE and are not touched here.
+      # Only the staged .app that the smoke test launches is signed, so the
+      # UPLOADED ARTIFACTS REMAIN UNSIGNED exactly as documented elsewhere.
+      # `|| true` keeps this diagnostic-only: if a runner ever does not need it,
+      # the step must not be the thing that fails the job.
+      - name: Ad-hoc sign the staged .app for the smoke test (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app in release/mac*/*.app; do
+            echo "ad-hoc signing $app"
+            # --deep is deprecated but is still the only one-liner that reaches
+            # the Electron helper apps and frameworks nested inside the bundle.
+            codesign --force --deep --sign - "$app" || true
+            codesign --verify --verbose=2 "$app" || true
+          done
+
+      # smoke.mjs picks the bundle matching the RUNNER's architecture:
+      # electron-builder stages x64 in release/mac and every other arch in
+      # release/mac-<arch>, and macos-latest is arm64. Launching the x64 bundle
+      # there would quietly be a test of Rosetta 2 instead of a test of the app.
+      # A longer timeout than the other two: a cold macOS runner's first Electron
+      # launch is materially slower.
+      - name: Smoke the packaged macOS app
+        if: matrix.platform == 'mac'
+        run: node tools/smoke.mjs --timeout=180s --screenshot=release/smoke-mac.png --json
+
+      # -- signing placeholders ----------------------------------------------
+      #
+      # Intentionally NOT enabled: every one of these needs a secret this project
+      # does not have, and a step that always fails is worse than no step.
+      # Uncomment once the corresponding secrets exist.
+      #
+      # macOS code signing + notarization:
+      #   - set secrets CSC_LINK (base64 .p12), CSC_KEY_PASSWORD,
+      #     APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+      #   - drop `identity: null` from electron-builder.yml `mac`
+      #   - set `hardenedRuntime: true` and add an entitlements plist
+      #   - remove CSC_IDENTITY_AUTO_DISCOVERY: false above
+      #   - add `notarize: { teamId: $APPLE_TEAM_ID }` to the mac config
+      #   - DELETE the ad-hoc signing step above: it would be redundant, and
+      #     re-signing after a real signature is how you destroy one.
+      #
+      # Windows Authenticode:
+      #   - set secrets WIN_CSC_LINK (base64 .pfx) and WIN_CSC_KEY_PASSWORD
+      #   - electron-builder picks them up automatically; no extra step needed
+      #
+      # Until then every artifact this workflow produces is UNSIGNED.
+
+      - name: Show artifacts
+        shell: bash
+        run: ls -la release/ || true
+
+      # The path list stays platform-agnostic. actions/upload-artifact v4 runs
+      # ALL patterns through one search and only honours `if-no-files-found:
+      # error` when the combined result is empty — a pattern that matches nothing
+      # is not an error on its own. So the Linux job listing *.exe and *.dmg it
+      # cannot produce is harmless, while `error` still does its real job:
+      # catching a packaging step that silently produced nothing at all.
+      # Splitting the block three ways would buy no extra strictness (each job
+      # would still be a combined glob) at the cost of three copies to keep in
+      # sync, so it stays as one.
+      #
+      # smoke-*.png is the point of the whole exercise: the uploaded artifact
+      # contains an actual screenshot of the app running on that OS, which is
+      # the evidence a reader can check without a Windows box or a Mac.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weltempfaenger-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/smoke-*.png

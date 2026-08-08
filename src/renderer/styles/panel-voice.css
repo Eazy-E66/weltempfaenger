@@ -1,0 +1,497 @@
+/* ===========================================================================
+   THE PANEL'S VOICE — the surfaces the first sixty seconds are made of.
+
+   Four things live here, and they are together because they answer one
+   complaint: on a fresh profile this receiver said nothing, showed nothing, and
+   confirmed nothing.
+
+     · .annun      the annunciator strip. Law 4's designed-failure state, on
+                   the front panel. Host messages used to be posted to the
+                   register's sheet, behind a lid, gated on the sheet having
+                   zero rows — so RADIO ON on a fresh install changed exactly
+                   zero pixels, ten presses running.
+     · .preset__*  preset occupancy. The whole treatment used to be
+                   `opacity: .85 → 1`, a 3.04/255 luminance step, and the
+                   `is-stored` class the store handler adds had no rule at all
+                   anywhere in the project.
+     · .logbook    the printed log strip above the tuning scale.
+     · .plate__hint / .is-inert   a band selector that says it is empty, and a
+                   plate hint that describes the panel as it actually is.
+
+   Lighting obeys tokens.css: one source, upper left. Nothing here invents a
+   highlight direction, and nothing here is a colour that is not already in the
+   token set.
+   ======================================================================== */
+
+/* ---------------------------------------------------------------------------
+   The annunciator.
+
+   A lamp behind a legend on a dark strip, which is what a warning annunciator
+   on this family of instrument is. It is part of the readout stack, below the
+   LCD, so a message and the state it is about are read in one movement of the
+   eye.
+   ------------------------------------------------------------------------- */
+
+.annun {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 9px 4px 8px;
+  min-height: 19px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #101112 0%, #0a0b0c 62%, #0d0e10 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 236, 0.05),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.6),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+/* Unlit: the strip is there, the legend is not. A blank annunciator is a real
+   state on a real panel, and reserving its row is what keeps a message from
+   re-laying out the whole faceplate. */
+.annun:not(.is-lit) {
+  background: linear-gradient(180deg, #0c0d0e 0%, #08090a 62%, #0a0b0c 100%);
+}
+.annun:not(.is-lit) .annun__lamp {
+  background: radial-gradient(circle at var(--lit-x) var(--lit-y), #2a2b2d, #17181a 62%, #0d0e0f);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 250, 236, 0.05);
+}
+
+/* The lamp itself: a small lens, lit from within, seated in its own bore. */
+.annun__lamp {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at var(--lit-x) var(--lit-y), var(--lamp-c-hi), var(--lamp-c) 62%, var(--lamp-c-lo));
+  box-shadow:
+    inset 0 0 2px rgba(0, 0, 0, 0.55),
+    0 0 5px var(--lamp-glow),
+    0 0 11px var(--lamp-glow);
+}
+
+.annun__head {
+  flex: 0 0 auto;
+  font-family: var(--font-silk);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--annun-ink);
+  text-shadow: 0 0 6px var(--lamp-glow);
+}
+
+.annun__act {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(214, 206, 186, 0.86);
+}
+
+/* Two tones, both from the token lamps. Advice is the amber pilot; a fault is
+   the same red the RECONNECT lamp and the meter's weak arc already use. */
+.annun.is-advice {
+  --lamp-c: var(--lamp-amber);
+  --lamp-c-hi: #ffd79a;
+  --lamp-c-lo: var(--lamp-amber-d);
+  --lamp-glow: rgba(255, 171, 61, 0.42);
+  --annun-ink: #ffcf8d;
+}
+.annun.is-fault {
+  --lamp-c: var(--lamp-red);
+  --lamp-c-hi: #ff8b78;
+  --lamp-c-lo: var(--lamp-red-d);
+  --lamp-glow: rgba(216, 52, 42, 0.45);
+  --annun-ink: #ffb0a1;
+}
+
+/* The strike. This is what makes the tenth press of a dead control look
+   different from the ninth: the message may be identical, the lamp still
+   flashes. Two full cycles, because one is easy to miss and three is a toy. */
+@keyframes annun-strike {
+  0%   { filter: brightness(2.4); }
+  12%  { filter: brightness(0.7); }
+  30%  { filter: brightness(2.1); }
+  52%  { filter: brightness(0.8); }
+  100% { filter: brightness(1); }
+}
+.annun.is-struck {
+  animation: annun-strike 760ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .annun.is-struck {
+    animation: none;
+    outline: 1px solid var(--lamp-c);
+    outline-offset: -1px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The phase badge's fourth colour.
+
+   `NO AUDIO` is what the badge reads when the engine says `playing` and its own
+   `signalLevel` says zero — see readout.ts. It must not wear the green LOCKED
+   background, because the entire point is that the receiver is not locked onto
+   anything you can hear; it wears the caution colour the transitional phases
+   use, because that is what it is.
+   ------------------------------------------------------------------------- */
+
+.lcd__phase[data-phase='silent'] {
+  background: rgba(70, 44, 6, 0.8);
+  color: #ffd89a;
+}
+
+/* ---------------------------------------------------------------------------
+   Preset occupancy: an unmistakable three-state key.
+   ------------------------------------------------------------------------- */
+
+.presets-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+/* This line is the widest thing in the panel's fourth grid column, and that
+   column is `max-content`: at 212 px of nowrap silkscreen it was taking 57 px
+   away from the switch row two rows below it — which is most of why, at the
+   860x560 minimum, the STATIONS key ran out from under its own row and sat on
+   top of the flywheel, and why the printed band plan had room for
+   `SHORT WAVE BAND PLAN · 1` and no more. It sets to fit instead. Two short
+   lines under three keys is what a real panel does with a long instruction;
+   `.zone--tune > *` in faceplate.css is the cap it sets to. */
+.presets__legend {
+  color: rgba(160, 154, 140, 0.72);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.35;
+}
+
+/* The paper slip under each key. Empty stock is a ruled blank — still legible
+   as "a name goes here", which is the part that teaches the control. */
+.preset__slip {
+  width: 46px;
+  min-height: 10px;
+  padding: 1px 2px;
+  border-radius: 1px;
+  font-family: var(--font-silk);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #2a2620;
+  background: linear-gradient(180deg, #b3ab97 0%, #9c957f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 232, 0.34),
+    0 1px 2px rgba(0, 0, 0, 0.55);
+}
+/* Blank stock: the ruled line, and no ink. */
+.preset[data-occupied='false'] .preset__slip {
+  color: transparent;
+  background: linear-gradient(180deg, #4a473f 0%, #3b382f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 232, 0.09),
+    inset 0 -3px 0 -2px rgba(255, 250, 232, 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* An empty jewel is a dark bore under unlit glass, not a 15%-dimmed lit one.
+   This replaces `opacity: .85`, which was the entirety of the old treatment. */
+.preset[data-occupied='false'] .jewel__glass {
+  opacity: 0.72;
+  filter: brightness(0.5) saturate(0.55);
+}
+
+/* An occupied key has its lamp on — the canvas is repainted with the lit optic,
+   so this only has to keep the two lit states apart: stored is a lamp, on air
+   is a lamp that throws light back onto the panel. A filled bezel ring makes
+   occupancy readable even where the glass is small. */
+.preset[data-occupied='true'] .jewel::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--halo-c);
+  opacity: 0.85;
+  pointer-events: none;
+  z-index: 1;
+}
+.preset[data-occupied='true'][data-active='false'] .jewel__glass {
+  filter: brightness(0.88);
+}
+.preset[data-occupied='true'] > .silk {
+  color: var(--silk);
+}
+
+/* The store, confirming itself. The slip is the thing that changed, so the slip
+   is what flashes — the ink arriving on the paper. */
+@keyframes slip-write {
+  0%   { filter: brightness(2.6) contrast(0.7); transform: translateY(-1px); }
+  40%  { filter: brightness(1.35); transform: translateY(0); }
+  100% { filter: brightness(1); }
+}
+.preset.is-stored .preset__slip {
+  animation: slip-write 820ms ease-out;
+}
+.preset.is-stored .jewel {
+  animation: slip-write 820ms ease-out;
+}
+
+/* Clicking a key with nothing in it: the blank slip is pointed at, so the
+   answer is attached to the key that was pressed rather than only to the
+   annunciator six inches away. */
+@keyframes slip-blank {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255, 250, 232, 0.09), 0 1px 2px rgba(0, 0, 0, 0.5); }
+  25%, 75% { box-shadow: inset 0 0 0 1px var(--lamp-amber), 0 1px 2px rgba(0, 0, 0, 0.5); }
+}
+.preset.is-blank .preset__slip {
+  animation: slip-blank 760ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .preset.is-stored .preset__slip,
+  .preset.is-stored .jewel,
+  .preset.is-blank .preset__slip {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The logbook strip.
+
+   Manila stock on the dial head, above the scale it refers to. The tabs are the
+   same printed-card material as the register's comb tabs, at the size a paper
+   log slipped under the cursor rail would actually be.
+   ------------------------------------------------------------------------- */
+
+.logbook {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+.logbook__label {
+  flex: 0 0 auto;
+  color: var(--silk-teal-d);
+}
+.logbook__strip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 1px 0;
+}
+.logbook__strip::-webkit-scrollbar {
+  display: none;
+}
+.logbook__empty {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: rgba(160, 154, 140, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.logbook__empty[hidden] {
+  display: none;
+}
+
+.logbook__tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 150px;
+  padding: 1px 6px 2px;
+  border: 0;
+  border-radius: 1px 1px 0 0;
+  cursor: pointer;
+  background: linear-gradient(180deg, #c3b795 0%, #a99d7c 78%, #8d8266 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 226, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  transition: transform 90ms ease, filter 90ms ease;
+}
+.logbook__tab:hover {
+  filter: brightness(1.12);
+}
+.logbook__tab:active {
+  transform: translateY(1px);
+  filter: brightness(0.94);
+}
+.logbook__tab:focus-visible {
+  outline: 1px solid var(--silk-teal);
+  outline-offset: 1px;
+}
+.logbook__time {
+  flex: 0 0 auto;
+  font-family: var(--font-num);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 8px;
+  color: rgba(40, 34, 22, 0.6);
+}
+.logbook__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #241f16;
+}
+
+/* ---------------------------------------------------------------------------
+   Band plate: the plain-words line, and a selector that is visibly locked.
+   ------------------------------------------------------------------------- */
+
+.plate__hint {
+  display: block;
+  color: var(--lcd-ink-dim);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.22);
+  white-space: normal;
+  line-height: 1.32;
+}
+.plate__hint:empty {
+  display: none;
+}
+/* Before a band is cut this line is the only instruction on the panel, so it is
+   printed in the plate's ink rather than in its margin note. */
+.plate__hint.is-urging {
+  color: var(--lcd-ink);
+  font-weight: 700;
+}
+/* Turning a shaft that has nothing to select from. Law 1: the control answers
+   rather than swallowing the gesture.
+
+   Amber, not maroon. This is not a fault and it is not a refusal of permission
+   — it is a control whose job has not arrived yet, and the sentence beside it
+   says how to give it one. `#8a5406` is the same dark amber the register's own
+   advisory strip uses on the same cream stock, where the panel's bright
+   `--lamp-amber` would be illegible. */
+.plate__hint.is-refused {
+  color: #8a5406;
+  font-weight: 700;
+  animation: annun-strike 620ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .plate__hint.is-refused {
+    animation: none;
+  }
+}
+/* NO BAND CUT is the register's word for this state and it stays — but it is
+   not news, so it steps back and lets the instruction have the plate. */
+.plate__window.is-uncut .plate__scope {
+  font-size: 11px;
+  opacity: 0.62;
+  letter-spacing: 0.16em;
+}
+
+/* A selector with nothing to select from. `.knob.is-disabled` already dims the
+   shaft, which on a black knob against a black panel is not a state anybody
+   reads; the legend under it is what actually carries this.
+
+   The flywheel answers to the same two rules. It had to be added: METER BAND
+   refused correctly and the biggest control on the panel — sitting next to it —
+   was fully live over an empty dial, winding the printed scale through 150 kHz
+   with the pointer lit and nothing anywhere saying the drum was blank. */
+/* NOT MAROON, AND NOT THE WORD `LOCKED`.
+   On a fresh install the panel printed `METER BAND · LOCKED` and `MW / SW
+   TUNING · LOCKED` in maroon, side by side, on a receiver the user had owned
+   for four seconds. Read cold that is not "this control has nothing to do yet",
+   it is *"you do not have the paid version"* — a first-time user said exactly
+   that. Maroon is this panel's fault colour and it is spent everywhere else on
+   things that are genuinely broken; amber is its advice colour, which is what
+   an empty selector actually is. The legends themselves now read `· EMPTY`
+   (meterBand.ts, tuningKnob.ts), and after the opening band lands on first
+   launch neither state is normally reachable at all. */
+.knob-unit.is-inert .knob-label,
+.tuning-knob.is-inert .tuning-knob__label {
+  color: var(--lamp-amber);
+  opacity: 0.9;
+}
+.knob-unit.is-inert .knob,
+.tuning-knob.is-inert .tuning-knob__knob {
+  /* Firmer than the generic disabled treatment: a shaft that will not turn
+     should look mechanically detented, not merely faded out. */
+  opacity: 0.5;
+}
+/* A hand on the locked flywheel. Same maroon strike as the band plate's refusal,
+   restarted on every attempt, so the tenth push looks different from the ninth.
+   The *reason* goes to the annunciator: this legend is one line in a flexible
+   grid row and text that grew to two lines would re-lay the whole faceplate. */
+.tuning-knob__label.is-refused {
+  color: var(--lamp-amber);
+  font-weight: 700;
+  animation: annun-strike 620ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tuning-knob__label.is-refused {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE CUE OVER THE WORLD MAP.
+
+   A revision of `.lid__hit-cue` in lid.css, which is why it is here: this file
+   loads after it, and it is where rules that revise another surface's live.
+
+   The raised lid's printed plate is one big press, and it carried a floating
+   `OPEN THE REGISTER` box that appeared the instant a pointer crossed it. The
+   top ~180 px of the window is exactly where a pointer comes to rest, so the
+   box was up most of the time — an opaque panel sitting on the printed timezone
+   strip, hiding `-1 GMT +1`, with nothing on screen to explain what had raised
+   it. Reported as "a stuck tooltip orphaned over the world map", and
+   reproducible: park the pointer on the map, open the register, shut it again,
+   and the box comes back with no gesture at all, because `:hover` re-applies
+   the moment the press is displayed again.
+
+   It is not needed on hover any more. The panel's own key is silkscreened
+   STATIONS and lights when the dial is empty; the lip above the map is
+   silkscreened WORLD STATION REGISTER and carries a latch at each end; and the
+   press still answers the pointer with a teal ring and a lit face, which is the
+   affordance. A label as well was a third teacher paid for with a permanent
+   overlay on printed matter.
+
+   KEYBOARD KEEPS IT. `:focus-visible` is deliberate navigation — it happens
+   because someone tabbed here — and a focus ring round an invisible full-width
+   press needs a name beside it. The two rules are separated for that reason:
+   the cue is now a focus label, not a tooltip.
+   ------------------------------------------------------------------------- */
+
+.lid__hit:hover .lid__hit-cue {
+  opacity: 0;
+}
+.lid__hit:focus-visible .lid__hit-cue {
+  opacity: 1;
+}
+/* …and since the words are gone, the press has to answer the pointer on its
+   own. A brighter face and a heavier ring: the same two channels, turned up to
+   carry what the label used to say. */
+.lid__hit:hover {
+  background: rgba(63, 211, 208, 0.1);
+  box-shadow:
+    inset 0 0 0 2px rgba(63, 211, 208, 0.75),
+    inset 0 0 22px rgba(63, 211, 208, 0.16);
+}

@@ -1,0 +1,148 @@
+# electron-builder configuration for Weltempfänger.
+#
+# Auto-detected by electron-builder (no `build` key needed in package.json).
+#
+# Platform reality check — read tools/pack-mac.mjs and the CI workflow before
+# changing anything here:
+#   linux  AppImage + deb  ..... builds natively on the dev box
+#   win    zip (+ dir) ......... builds on Linux ONLY because exe patching is
+#                                disabled; NSIS needs wine, which we do not have
+#   mac    dmg/zip ............. electron-builder can only do this ON macOS.
+#                                Cross-building from Linux is tools/pack-mac.mjs.
+
+appId: org.psppcpr.weltempfaenger
+productName: Weltempfänger
+copyright: Copyright © 2026 PSPPCPR
+
+# productName carries an umlaut, which is correct for display but a nuisance in
+# download URLs, shell scripts and CI artifact names. Filenames stay ASCII.
+artifactName: weltempfaenger-${version}-${arch}.${ext}
+
+directories:
+  buildResources: build
+  output: release
+
+# Allowlist. Anything not named here is excluded, which is how src/, test/ and
+# docs/ stay out of the shipped app. Verified with `asar list` after packing.
+files:
+  - dist/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/*.ts'
+
+asar: true
+compression: normal
+
+# fpm (the deb builder) refuses to run without a homepage, and package.json has
+# no `homepage` field. extraMetadata is merged into the app metadata before the
+# build and is also written into the package.json inside app.asar.
+# PLACEHOLDER — point this at the real project URL before any public release.
+extraMetadata:
+  homepage: https://github.com/psppcpr/weltempfaenger
+
+# No native modules in this project (dependencies is empty), so skip the rebuild
+# pass entirely — it only costs time.
+npmRebuild: false
+
+# ---------------------------------------------------------------------------
+# Linux — fully built and verified on the dev box
+# ---------------------------------------------------------------------------
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: build/icons
+  # Becomes `Categories=` verbatim in the .desktop file. NOTE: electron-builder
+  # writes this AFTER merging `linux.desktop`, so a Categories key set there is
+  # silently discarded — the full list has to live here.
+  category: AudioVideo;Audio;Player;Network
+  synopsis: Desktop shortwave receiver for internet radio
+  # `>-` (not `>`): the folded scalar's trailing newline ends up verbatim in the
+  # .desktop file as a blank line before Categories.
+  description: >-
+    A desktop shortwave receiver that happens to stream internet radio.
+    Tune stations along a dial, watch a real signal meter, and store presets.
+  # package.json `author` has no email; deb requires a maintainer address.
+  # Replace with a real one before any public release.
+  maintainer: PSPPCPR <maintainer@psppcpr.invalid>
+  # FLAT map of .desktop keys in electron-builder 25 — do NOT nest under `entry`,
+  # that emits a literal `entry=[object Object]` line into the file.
+  # Name/Exec/Icon/Type/Terminal are filled in automatically; Comment is always
+  # overwritten with `description`, and Categories with `category` (see above).
+  desktop:
+    Keywords: radio;shortwave;stream;shoutcast;icecast;tuner;
+    # Must equal the window's WM_CLASS or the taskbar icon won't bind to the
+    # running window. MEASURED with xprop against the real packaged app (both
+    # the AppImage and release/linux-unpacked/psppcpr, which agree):
+    #   WM_CLASS(STRING) = "weltempfänger", "Weltempfänger"
+    # so this matches the res_class (second) field. Note it is NOT the
+    # executable name (psppcpr) — Electron derives the class from the app name,
+    # not argv[0]. Re-measure if the main process ever calls app.setName().
+    StartupWMClass: Weltempfänger
+
+deb:
+  compression: xz
+  priority: optional
+
+# ---------------------------------------------------------------------------
+# Windows — built on Linux without wine
+# ---------------------------------------------------------------------------
+win:
+  # `portable` = a single self-extracting .exe, which is the intended Windows
+  # deliverable. It is NSIS-based and MEASURED to build natively on Linux with
+  # no wine: electron-builder downloads its own makensis (nsis-3.0.4.1, which
+  # ships a Linux build) into ~/.cache/electron-builder/nsis. An earlier comment
+  # here claimed NSIS needs wine — it does not. Only rcedit does (see below).
+  # TWO deliverables, on purpose:
+  #   portable  a single self-extracting .exe. This is the headline artifact —
+  #             "download the .exe and use it straight away" with no installer,
+  #             no admin rights and nothing written outside %TEMP%.
+  #   zip       the same win-unpacked tree, archived. For anyone whose employer,
+  #             antivirus or browser quarantines a self-extracting executable
+  #             (common), and for scripted/portable-drive installs. It is also
+  #             the only Windows artifact whose contents can be inspected
+  #             without running anything.
+  # Both come from the identical win-unpacked payload, so they cannot disagree.
+  # The CI step deliberately names NO target, so it builds whatever is listed
+  # here; adding or removing a line above is the only thing needed to change the
+  # Windows deliverables.
+  target:
+    - target: portable
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  icon: build/icon.ico
+
+  # THE wine switch, and the ONLY thing here that actually needs wine. When true,
+  # electron-builder runs rcedit to stamp the icon and VERSIONINFO into the
+  # bundled electron.exe; rcedit is a win32 binary that needs wine on Linux.
+  #
+  # Scope of `false`, VERIFIED by extracting RT_ICON from the built artifact:
+  #   the OUTER portable .exe DOES get build/icon.ico (all 6 sizes) — makensis
+  #   compiles that in itself, no rcedit involved. So Explorer/desktop show the
+  #   right icon. What stays stock is the INNER exe unpacked to temp at runtime,
+  #   which is what the taskbar reads once the app is running, because
+  #   src/main/index.ts creates its BrowserWindow with no `icon` option.
+  # CI overrides this to true on windows-latest, where rcedit runs natively.
+  signAndEditExecutable: false
+
+# ---------------------------------------------------------------------------
+# macOS — used by CI on macos-latest only.
+# On Linux, `npm run pack:mac` runs tools/pack-mac.mjs instead.
+# ---------------------------------------------------------------------------
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  icon: build/icon.icns
+  category: public.app-category.music
+  # No Developer ID certificate exists for this project. `identity: null` makes
+  # that explicit so electron-builder does not go hunting the keychain and fail.
+  # Signing/notarization placeholders live in the CI workflow, commented out.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false

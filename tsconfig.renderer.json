@@ -1,0 +1,24 @@
+{
+  // Renderer. Typecheck only — Vite/esbuild does the actual transform, so this
+  // config never emits. Browser environment: DOM libs, no Node types.
+  //
+  // Electron 33 ships Chromium 130, so modern ES/DOM can be targeted freely;
+  // there is no legacy browser to support.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+
+    // vite/client provides import.meta.env, ?url / ?raw asset imports, etc.
+    // Node types are intentionally absent: the renderer has no Node access
+    // (contextIsolation), so `process`/`require` should be type errors here.
+    "types": ["vite/client"],
+
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/renderer/**/*", "src/shared/**/*"],
+  "exclude": ["node_modules", "dist", "release"]
+}

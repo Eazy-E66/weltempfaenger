@@ -1,0 +1,757 @@
+/* ===========================================================================
+   THE REGISTER SHEET AND ITS SLOT.
+
+   ONE CAMERA. There is no `rotateX`, no `matrix3d` and no `perspective` in this
+   file, and there must never be one again. The shipping build put the closed lid
+   on `rotateX(-75.2deg)`, which measured 1250.0 px along its top edge against
+   1098.3 px along its bottom — a 13.8% taper, wider at the top, i.e. a lid seen
+   from below sitting on a chassis drawn strictly front-on. Every surface in this
+   application is now orthographic, this one included.
+
+   THE MECHANISM. A sheet running vertically in a slot cut into the case between
+   the lip and the hem. The sheet is one rigid body `--lid-travel + --lid-plate`
+   deep, made of the REGISTER on top and the PRINTED PLATE below it, and it has
+   exactly two positions:
+
+     home       translate3d(0, 0, 0)
+                the register is inside the slot; only the plate shows, standing
+                across the top of the window as the printed metal top of the case
+     drawn out  translate3d(0, --lid-travel, 0)
+                the register fills the well over the faceplate; the plate has
+                gone down past the hem and tucked under the bottom rail
+
+   Nothing resizes, nothing mounts, nothing is solved per frame: the only thing
+   that changes between the two states is one translation, on one promoted layer.
+
+   LIGHTING, per Law 5: one source, upper left. The sheet's left edge catches it
+   and its right edge falls away; the slot mouth is a recess so it is dark along
+   its top wall; the leading edge is a lit chamfer over a dark core; and the
+   shadow it throws falls down and to the RIGHT, which is the direction every
+   other shadow in this application falls. That shadow belongs to the sheet, so
+   it travels with it — it sweeps down the faceplate as the sheet comes out.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   The case top. A brushed lip carrying the antenna channel and two latch tabs;
+   the latches are the handle you draw the sheet out with.
+   ------------------------------------------------------------------------- */
+
+/* Same sheet metal as the shell, so — like the grille — it carries only the
+   brush and a top-edge highlight, never a second broad sheen. */
+.lip.mat-alu {
+  position: relative;
+  flex: 0 0 auto;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  z-index: 70;
+  isolation: isolate;
+  background-color: #96928a;
+  background-image:
+    linear-gradient(180deg, rgba(255, 252, 244, 0.3) 0%, rgba(255, 252, 244, 0.06) 34%, rgba(0, 0, 0, 0.12) 100%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.05) 0px,
+      rgba(255, 255, 255, 0.05) 1px,
+      rgba(0, 0, 0, 0.045) 1px,
+      rgba(0, 0, 0, 0.045) 2px,
+      rgba(255, 255, 255, 0.012) 2px,
+      rgba(255, 255, 255, 0.012) 3px
+    );
+  box-shadow:
+    inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+    0 2px 5px rgba(0, 0, 0, 0.4);
+}
+
+/* The channel the telescopic antenna lies in, running along the left of the
+   case top the way a stowed whip does — not through the middle of the
+   labelling. */
+.lip__channel {
+  position: absolute;
+  left: 78px;
+  right: 62%;
+  top: 50%;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #4a473f 0%, #6d6a60 55%, #8c887c 100%);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 250, 235, 0.28);
+}
+.lip__antenna {
+  position: absolute;
+  left: 3px;
+  right: 22px;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #e7e3d6 0%, #9c988c 45%, #55524a 100%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.lip__latch {
+  position: relative;
+  z-index: 2;
+  width: 44px;
+  height: 15px;
+  border-radius: 2px;
+  background-image: linear-gradient(180deg, #b3aea0 0%, #8d8981 46%, #605d56 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 252, 242, 0.65),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: transform 110ms ease, box-shadow 110ms ease;
+}
+.lip__latch:hover {
+  background-image: linear-gradient(180deg, #c3bfb1 0%, #9b978e 46%, #6a675f 100%);
+}
+.lip__latch:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.5);
+}
+.lip__latch-grip {
+  position: absolute;
+  inset: 3px 8px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.36) 0 1px,
+    rgba(255, 255, 255, 0.3) 1px 2px
+  );
+  opacity: 0.8;
+  border-radius: 1px;
+}
+.lip.is-open .lip__latch {
+  background-image: linear-gradient(180deg, #8f8b7f 0%, #6f6c64 46%, #4b4842 100%);
+}
+
+.lip__title {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+}
+.lip__title .silk {
+  color: #4b483f;
+  text-shadow: 0 1px 0 rgba(255, 252, 244, 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+   THE WELL.
+
+   The full travel of the sheet, from under the lip to the hem, at every window
+   size and in every state. It never changes size except with the window, it is
+   transparent — the faceplate shows through wherever the sheet is not — and it
+   clips, which is what puts the register out of sight while the sheet is home
+   and swallows the plate once the sheet is out.
+   ------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   A NOTE ON WHERE THE NUMBERS LIVE, WHICH IS A PERFORMANCE RULE AND NOT A TASTE.
+
+   The well's height, the sheet's top, height and transform, the plate's height
+   and the press's height are written as INLINE PROPERTIES on the four elements
+   that use them, from `applyGeometry()` in lid.ts. They are deliberately not
+   custom properties on `.lid`.
+
+   Custom properties INHERIT. A `--lid-y` written on `.lid` is a style change on
+   every one of the ~4100 nodes of the register hanging under it, whether they
+   read it or not, and Chromium recalculates all of them before it will hand back
+   a layout. Measured on this build, at 1280×820, on the machine this ships to:
+   setting `--lid-y` on `.lid` and forcing layout cost **137–333 ms of blocked
+   main thread**; the same movement written straight onto `.lid__panel.style`
+   costs a single element's recalc. There is a 200 ms travel to fit inside; a
+   third of a second of style invalidation does not fit inside it.
+
+   `--lid-print-t` is the one exception, because the printed matter genuinely is
+   a cascade — a dozen rules downstream size themselves off it — and it is
+   written on `.lid__print`, whose subtree is thirty nodes rather than four
+   thousand.
+   ------------------------------------------------------------------------- */
+
+.lid {
+  --lid-inset: 15px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 26px;
+  /* height: written by applyGeometry() — the depth of the well. */
+  height: 0;
+  z-index: 60;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   THE SHEET.
+
+   Register on top, printed plate below, one rigid body. Hung from `-travel` so
+   that at rest its bottom `--lid-plate` pixels are the only part inside the
+   well; `--lid-y` is 0 at home and `--lid-travel` when it is drawn out, which is
+   the whole of the mechanism.
+
+   `will-change: transform` is not a hint here, it is the performance fix. It
+   promotes the sheet to its own layer and widens the paint interest rect to
+   cover the part of it that is still inside the slot, so the register is
+   rasterised while it is out of sight and the travel is a composited blit
+   rather than a repaint. On the old build a click cost 2.72 s before one pixel
+   moved, because the register was `display: none` until then.
+   ------------------------------------------------------------------------- */
+
+.lid__panel {
+  position: absolute;
+  left: var(--lid-inset);
+  right: var(--lid-inset);
+  /* top, height and transform: written by applyGeometry(). Home is
+     `translate3d(0,0,0)` with the sheet hung at `-travel`; drawn out is
+     `translate3d(0, travel, 0)`. */
+  top: 0;
+  height: 0;
+  transform: translate3d(0, 0, 0);
+  display: flex;
+  flex-direction: column;
+  border-radius: 0 0 7px 7px;
+  background-color: var(--lid-base);
+  will-change: transform;
+  /* The channels the sheet runs in: the shell right beside it is shaded, more
+     heavily on the right, which is the side turned away from the lamp. */
+  box-shadow:
+    3px 0 7px rgba(0, 0, 0, 0.5),
+    -1px 0 3px rgba(0, 0, 0, 0.34);
+}
+/* The travel is the ONLY animated moment. While the sheet merely tracks the
+   window it follows it exactly: a transition on a dragged value is a lag, and a
+   lagging sheet is one painted over the faceplate for the length of it. */
+.lid[data-swing='true'] .lid__panel {
+  transition: transform var(--lid-ms) var(--lid-ease);
+}
+/* Nothing on the sheet may be touched until it is out. (`inert` says the same
+   thing to the keyboard and to assistive technology; this says it to the
+   mouse, through a well that is `pointer-events: none`.) */
+.lid[data-open='true'] .lid__panel {
+  pointer-events: auto;
+}
+
+/* The register's half of the sheet. */
+.lid__face {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 12px;
+  gap: 8px;
+  background-image:
+    radial-gradient(120% 90% at var(--lit-x) 4%, rgba(255, 255, 255, 0.07) 0%, rgba(0, 0, 0, 0) 56%),
+    linear-gradient(var(--light-angle), #14161a 0%, #0b0d0e 52%, #050607 100%);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.9);
+}
+
+/* The leading edge: a lit chamfer over a dark core, and the shadow the sheet
+   throws on whatever is under it. Both are part of the sheet, so both travel
+   with it — down and to the right, from the one lamp at the upper left. */
+.lid__rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 7px;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 0 0 7px 7px;
+  background: linear-gradient(180deg, #43464b 0%, #24272a 34%, #101214 72%, #060708 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 235, 0.34),
+    3px 10px 18px rgba(0, 0, 0, 0.55),
+    1px 3px 5px rgba(0, 0, 0, 0.72);
+}
+
+/* The sheet's own thickness at the sides: the left edge turns toward the lamp,
+   the right edge turns away. No highlight along the top — the top of the sheet
+   is inside the slot, where there is no light. */
+.lid__edge {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 2px 0 0 rgba(255, 250, 235, 0.16),
+    inset -2px 0 0 rgba(0, 0, 0, 0.66);
+}
+
+/* A large matte surface under one upper-left lamp: a narrow rake off the top
+   left corner, and the light falling away toward the bottom right.
+ *
+ * Two linear gradients, not a pair of full-bleed radials. The radials read a
+ * shade better and cost about 130 ms of software raster across a 1250 × 953
+ * layer every time the sheet travels, on a machine with no GPU. The travel is
+ * 200 ms long; a vignette does not get to spend two thirds of it. */
+.lid__sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(var(--light-angle), rgba(255, 250, 235, 0.09) 0%, rgba(255, 250, 235, 0) 14%),
+    linear-gradient(168deg, rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.26) 100%);
+}
+
+/* The slot the sheet comes out of, cut into the case under the lip. A recess
+   under an upper-left lamp is dark along its top wall, so this is. It sits above
+   the sheet, which is what makes the sheet pass UNDER it. */
+.lid__mouth {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 11px;
+  z-index: 20;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.44) 36%,
+    rgba(0, 0, 0, 0.12) 70%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 250, 235, 0.09);
+}
+
+/* ---------------------------------------------------------------------------
+   The register's tray — a milled recess in the sheet.
+
+   A recess under an upper-left lamp is DARK on its top and left inner walls and
+   LIT on its bottom and right ones. That is the opposite of every raised part in
+   this application, and it is the whole reason a recess reads as a hole.
+   ------------------------------------------------------------------------- */
+
+/* STOWED. With the sheet home and settled, the register is not rendered at all:
+   `content-visibility: hidden` takes its ~1000 controls out of layout, out of
+   paint, out of the focus order and out of the accessibility tree, and — unlike
+   `display: none` — keeps the rendering state it already has, so bringing it
+   back is not a cold start.
+ *
+ * This is a measured requirement, not tidiness. Left rendered while the receiver
+ * plays with the sheet home, the register cost **89.5% of a core against 71.4%**
+ * with it gone — an 18-point regression on the number a performance pass had
+ * already fought down. Stowed, the same measurement is 71.9%: the difference is
+ * inside the noise of having it in the document at all.
+ *
+ * The attribute is set at the END of the closing travel and cleared at the START
+ * of the opening one, so the register is rendered for the whole of every travel
+ * in both directions and nothing is ever seen appearing or vanishing. */
+.lid[data-stowed='true'] .lid__tray {
+  content-visibility: hidden;
+}
+
+.lid__tray {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  padding: 6px 7px 7px;
+  background: linear-gradient(var(--light-angle), #08090a 0%, #0c0e0f 60%, #101214 100%);
+  /* Two blurred inner walls, not four: the top and left walls of a recess are
+     the ones the lamp cannot reach, and they are what makes it read as a hole.
+     The lit walls opposite them are hard 0-blur lines, which cost nothing —
+     a blurred inset shadow across 1223 × 742 does not. */
+  box-shadow:
+    inset 0 4px 6px rgba(0, 0, 0, 0.95),
+    inset 4px 0 6px rgba(0, 0, 0, 0.75),
+    inset 0 -2px 0 rgba(255, 250, 235, 0.17),
+    inset -2px 0 0 rgba(255, 250, 235, 0.11);
+}
+
+/* ---------------------------------------------------------------------------
+   THE PRINTED PLATE — what shows while the sheet is home.
+
+   Seen face-on at 1:1. There is no projection to pre-compensate for any more, so
+   `--lid-print-t` is simply the type size in screen pixels, solved in lid.ts
+   against BOTH dimensions of the plate: a deep plate on a narrow case must not
+   print a legend wider than the case.
+   ------------------------------------------------------------------------- */
+
+.lid__print {
+  position: relative;
+  z-index: 1;
+  /* height: written by applyGeometry() — the depth of the plate. */
+  flex: 0 0 auto;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pt) * 0.4);
+  padding: calc(var(--pt) * 0.45) calc(var(--pt) * 0.8);
+  pointer-events: none;
+  --pt: var(--lid-print-t, 15px);
+}
+
+.print__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--pt) * 0.8);
+}
+.print__mark {
+  font-family: var(--font-ui);
+  font-size: calc(var(--pt) * 1.3);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: #ded9c9;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+}
+.print__sub {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: calc(var(--pt) * 0.66);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: rgba(159, 227, 225, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* The meter-band chart: `FREQUENCY 1.8–30 MHz` over the twelve boxed
+   broadcasting bands, exactly as the reference case top prints them. */
+.print__chart {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pt) * 0.7);
+  min-width: 0;
+}
+.print__chart-cap {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-silk);
+  font-size: calc(var(--pt) * 0.6);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  line-height: 1;
+  color: rgba(207, 202, 188, 0.66);
+  white-space: nowrap;
+}
+.print__bands {
+  flex: 1 1 auto;
+  display: flex;
+  gap: calc(var(--pt) * 0.22);
+  min-width: 0;
+  overflow: hidden;
+}
+.print__band {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-num);
+  font-size: calc(var(--pt) * 0.66);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: calc(var(--pt) * 1.12);
+  color: #cfe9e8;
+  border: 1px solid var(--lid-cyan-d);
+  border-radius: 1px;
+  background: rgba(31, 106, 106, 0.14);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* The map field: the GMT map with a boxed timezone strip along its top and
+   bottom edges, which is where the reference puts them. */
+.print__field {
+  position: relative;
+  /* Capped, not stretched. A window three times taller than it is wide hands
+     the plate a box far taller than any case top, and a world map poured into
+     it is not a map, it is a smear. The map keeps a printable aspect and the
+     surplus stays what it is: blank printed metal. */
+  flex: 0 1 auto;
+  aspect-ratio: 2.35;
+  max-height: 100%;
+  margin-block: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(63, 211, 208, 0.24);
+  background: #05090a;
+}
+.print__strip {
+  flex: 0 0 auto;
+  display: flex;
+  background: #000;
+}
+.print__tz {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-num);
+  /* Sized off `GMT`, the widest cell in the strip — a boxed numeral strip whose
+     widest box does not fit is the smear defect in miniature. */
+  font-size: calc(var(--pt) * 0.62);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: calc(var(--pt) * 1);
+  letter-spacing: 0.01em;
+  color: #cfe9e8;
+  border-right: 1px solid var(--lid-cyan-d);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.print__tz:last-child {
+  border-right: 0;
+}
+.print__tz--gmt {
+  color: #ffffff;
+  background: rgba(63, 211, 208, 0.18);
+}
+
+.print__map {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: block;
+}
+.print__ground {
+  fill: #05090a;
+}
+.print__grid {
+  stroke: var(--lid-grid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.print__grid--prime,
+.print__grid--eq {
+  stroke: #1f6a6a;
+  stroke-width: 1.4;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+.print__coast {
+  fill: rgba(31, 106, 106, 0.12);
+  stroke: var(--lid-cyan);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+/* Open rings are coastline fragments, not landmasses — filling them would close
+   the path across open water. */
+.print__coast--open {
+  fill: none;
+}
+
+/* Shallower plates print less, rather than printing everything illegibly. The
+   map goes first — a world map 18:1 is not a map — then the chart. What is left
+   is centred, because the leftover is blank printed metal, and blank printed
+   metal is a material, not a hole. */
+.lid[data-print='mid'] .print__strip--b,
+.lid[data-print='mid'] .print__map {
+  display: none;
+}
+.lid[data-print='min'] .print__chart,
+.lid[data-print='min'] .print__map,
+.lid[data-print='min'] .print__strip--b {
+  display: none;
+}
+.lid[data-print='mid'] .print__field,
+.lid[data-print='min'] .print__field {
+  aspect-ratio: auto;
+  flex: 0 0 auto;
+  margin-block: 0;
+}
+.lid[data-print='mid'] .lid__print,
+.lid[data-print='min'] .lid__print {
+  justify-content: center;
+}
+/* No deck to stand a plate on: no plate, and no leading edge to light either. */
+.lid[data-print='none'] .lid__print,
+.lid[data-print='none'] .lid__rail {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The plate's one control.
+
+   Everything behind it is inert. It covers the plate exactly, and its only job
+   is to draw the sheet out.
+   ------------------------------------------------------------------------- */
+
+.lid__hit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  /* height: written by applyGeometry() — the press covers the plate exactly. */
+  height: 0;
+  display: none;
+  z-index: 30;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0);
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.lid[data-bay='true'] .lid__hit {
+  display: block;
+}
+.lid__hit-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 9px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(20, 24, 25, 0.9), rgba(6, 8, 9, 0.9));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 235, 0.16),
+    0 2px 5px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.lid__hit:hover,
+.lid__hit:focus-visible {
+  background: rgba(63, 211, 208, 0.06);
+  box-shadow: inset 0 0 0 2px rgba(63, 211, 208, 0.55);
+}
+.lid__hit:hover .lid__hit-cue,
+.lid__hit:focus-visible .lid__hit-cue {
+  opacity: 1;
+}
+/* Pressed, the plate goes in a pixel before it travels — a physical control
+   answers the finger, not the transition. */
+.lid__hit:active {
+  background: rgba(63, 211, 208, 0.03);
+  box-shadow: inset 0 0 0 2px rgba(63, 211, 208, 0.4), inset 0 3px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+   Print matter carried over for the register's own map, which is a different
+   drawing on a different surface and keeps its own class names.
+   ------------------------------------------------------------------------- */
+
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+.map__ground {
+  fill: #05090a;
+}
+
+.map__grid {
+  stroke: var(--lid-grid);
+  stroke-width: 0.6;
+}
+.map__grid--major {
+  stroke: #17494a;
+  stroke-width: 0.8;
+}
+.map__grid--prime,
+.map__grid--equator {
+  stroke: #1f6a6a;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+}
+
+.map__coast {
+  fill: rgba(31, 106, 106, 0.1);
+  stroke: var(--lid-cyan);
+  stroke-width: 1.15;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  /* Screen-printed ink glows a little under the lid's own light. */
+  filter: drop-shadow(0 0 1.5px rgba(63, 211, 208, 0.4));
+}
+
+/* Open rings are coastline fragments, not landmasses — filling them would close
+   the path across open water. */
+.map__coast--open {
+  fill: none;
+}
+
+.map__city {
+  fill: var(--lid-ink);
+  opacity: 0.85;
+}
+.map__city-label {
+  fill: var(--lid-ink);
+  font-family: var(--font-silk);
+  font-size: 7.4px;
+  letter-spacing: 0.1em;
+  opacity: 0.68;
+}
+.map__city-label--l {
+  text-anchor: end;
+}
+
+.map__strip {
+  fill: #000;
+}
+.map__tz {
+  fill: none;
+  stroke: var(--lid-cyan-d);
+  stroke-width: 0.7;
+}
+.map__tz--gmt {
+  fill: rgba(63, 211, 208, 0.16);
+  stroke: var(--lid-cyan);
+}
+.map__tz-label {
+  fill: #cfe9e8;
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-anchor: middle;
+  opacity: 0.8;
+}
+.map__tz-label--gmt {
+  fill: #ffffff;
+  opacity: 1;
+  letter-spacing: 0.1em;
+}
+
+.lid__wordmark {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #d9d4c6;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8);
+  margin-bottom: 2px;
+}
+
+.lid__close {
+  flex: 0 0 auto;
+}
+
+/* ---------------------------------------------------------------------------
+   The keys, printed on the lid's legend.
+
+   Screen-printed reference matter, same stock and same ink as the two lines
+   above it; the key caps are the one thing in it that is brighter, because they
+   are the part you have to press.
+   ------------------------------------------------------------------------- */
+.reg-legend__keys b {
+  font-weight: 700;
+  color: var(--lid-cyan);
+  letter-spacing: 0.04em;
+}

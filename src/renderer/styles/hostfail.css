@@ -1,0 +1,65 @@
+/* The hard-failure card shown when no host published itself.
+   Deliberately not faceplate-shaped: a dead receiver must not read as a live
+   one. Flat, centred, high contrast, no bevels and no lamps. */
+
+.hostfail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  padding: 2rem;
+  text-align: center;
+  background: #0b0c0d;
+  color: var(--silk);
+  overflow: auto;
+}
+
+.hostfail__kicker {
+  margin: 0;
+  font-family: var(--font-silk);
+  font-size: 12px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--silk-dim);
+}
+
+.hostfail__title {
+  margin: 0;
+  font-family: var(--font-silk);
+  font-size: clamp(20px, 3.4vw, 34px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--silk-maroon);
+}
+
+.hostfail__body {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--silk);
+}
+
+.hostfail__detail {
+  margin: 0;
+  max-width: 60ch;
+  padding: 0.55rem 0.9rem;
+  font-family: var(--font-num);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--silk-dim);
+  border: 1px solid rgba(207, 202, 188, 0.18);
+  overflow-wrap: anywhere;
+}
+
+.hostfail__action {
+  margin: 0;
+  font-family: var(--font-silk);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--silk-teal);
+}

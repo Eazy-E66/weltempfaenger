@@ -1,0 +1,1390 @@
+/* ===========================================================================
+   THE WORLD STATION REGISTER — the inside of the lid.
+
+   Ported from the Design D proposal, which is the design the client chose, with
+   three deliberate departures:
+
+     · SPELLINGS ARE FOLDED. D printed `TRIP-HOP 24`, `TRIP HOP 14` and
+       `TRIPHOP 8` as three cards, and pulling two of them returned zero
+       entries because the combs AND together. One card now reads
+       `TRIP-HOP · 3 SPELLINGS · 46`. Same comb, same card stock, same
+       typography — correct data underneath.
+     · NO HARDCODED JUNK LIST. D demoted about thirty non-genre terms from a
+       hand-written table and said so in its own proposal: "exactly the
+       hardcoded list Law 1 forbids, just moved one layer down". The repo's
+       documented exact-match hygiene does that job instead.
+     · NO PRE-AIR MONITOR. D called its second audio path "plausible, not
+       demonstrated". It is not built, so it is not styled and not drawn.
+
+   Everything below this line rides on the app's existing tokens, materials and
+   control vocabulary — `vendor/` in the proposal was byte-identical to the
+   shipping stylesheets, so nothing here needed re-inventing.
+   =========================================================================== */
+
+
+:root {
+  /* ledger paper: the meter's dial stock, ruled */
+  --led-hi:   #f2e9d3;
+  --led-lo:   #cfc3a4;
+  --led-ink:  #221f19;
+  --led-dim:  rgba(34, 31, 25, 0.52);
+  --led-rule: rgba(70, 60, 40, 0.22);
+  --led-band: rgba(120, 104, 68, 0.07);
+
+  /* manila index card */
+  --card-hi:  #e2d4ab;
+  --card-lo:  #b6a479;
+}
+
+/* --------------------------------------------------------------------------
+   Lid head — the register's title block, printed on the plastic
+   ------------------------------------------------------------------------ */
+
+.reg-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex: 0 0 auto;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(63, 211, 208, 0.22);
+}
+.reg-head__left { display: flex; flex-direction: column; gap: 2px; }
+.reg-head__mid  { display: flex; flex-direction: column; gap: 3px; align-items: center; padding-bottom: 1px; }
+.reg-head__right{ display: flex; align-items: center; gap: 10px; }
+
+.reg-title {
+  font-family: var(--font-silk);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--lid-cyan);
+  text-shadow: 0 0 7px rgba(63, 211, 208, 0.28), 0 1px 0 rgba(0, 0, 0, 0.9);
+}
+
+/* The register's own edition line. Real numbers, printed like a colophon. */
+.reg-ed { color: var(--lid-ink); opacity: 0.62; }
+
+/* --------------------------------------------------------------------------
+   Body grid
+   ------------------------------------------------------------------------ */
+
+.reg {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr) 300px;
+  gap: 11px;
+}
+
+/* --------------------------------------------------------------------------
+   1. THE SELECTOR COMBS
+
+   A card index seen edge-on. Each row is a divider tab: printed name, printed
+   count, and a notch cut to a depth proportional to that count — so the comb
+   is a real histogram of the directory you are standing in. Pull a tab and the
+   card rises out of the deck: ivory stock, dark print, a teal engaged dot.
+   ------------------------------------------------------------------------ */
+
+.combs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.comb {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 2px;
+  padding: 5px 6px 5px;
+  background:
+    linear-gradient(var(--light-angle), rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.2));
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 0 rgba(63, 211, 208, 0.1);
+}
+.comb--subject { flex: 1.45 1 0; }
+.comb--origin  { flex: 1 1 0; }
+.comb--tongue  { flex: 0.85 1 0; }
+
+.comb__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 1px 3px;
+  border-bottom: 1px solid rgba(63, 211, 208, 0.2);
+  flex: 0 0 auto;
+}
+.comb__title { color: var(--lid-cyan); }
+.comb__n     { color: var(--lid-ink); opacity: 0.5; }
+
+/* The type-slot: a milled channel in the panel, not an input box. */
+.comb__slot {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 4px 0 3px;
+  height: 17px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #040707 0%, #0b1112 60%, #060a0a 100%);
+  box-shadow:
+    inset 0 2px 3px rgba(0, 0, 0, 0.95),
+    inset 0 -1px 0 rgba(63, 211, 208, 0.1),
+    0 1px 0 rgba(180, 220, 218, 0.07);
+}
+.comb__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0 16px 0 15px;
+  border: 0;
+  background: none;
+  font-family: var(--font-silk);
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #9fe3e1;
+  text-shadow: 0 0 5px rgba(63, 211, 208, 0.55);
+}
+.comb__input::placeholder { color: rgba(63, 211, 208, 0.3); letter-spacing: 0.2em; }
+.comb__input::-webkit-search-cancel-button { display: none; }
+/* the engraved index caret at the head of the channel */
+.comb__slot::before {
+  content: '';
+  position: absolute;
+  left: 5px; top: 50%;
+  width: 0; height: 0;
+  margin-top: -3px;
+  border-left: 4px solid rgba(63, 211, 208, 0.55);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+
+.comb__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: 1px;
+}
+
+.comb__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 15px;
+  flex: 0 0 auto;
+  padding: 0 5px 0 6px;
+  text-align: left;
+  border-radius: 1px;
+  cursor: pointer;
+  overflow: hidden;
+  /* card edges in a deck: a hairline lit lip, a dark gap below */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0 1px, rgba(255, 255, 255, 0.014) 1px, rgba(0, 0, 0, 0.16) 100%);
+}
+/* the notch: cut depth ∝ station count */
+.comb__notch {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: var(--w, 0%);
+  background: linear-gradient(90deg, rgba(255, 176, 46, 0.2), rgba(255, 176, 46, 0.05));
+  border-right: 1px solid rgba(255, 176, 46, 0.34);
+  pointer-events: none;
+}
+.comb__name {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b9d9d8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+.comb__cnt {
+  position: relative;
+  flex: 0 0 auto;
+  font-family: var(--font-num);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: rgba(159, 227, 225, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+.comb__tab:hover { background: linear-gradient(180deg, rgba(63, 211, 208, 0.14), rgba(0, 0, 0, 0.1)); }
+
+/* Pulled: the card comes up out of the deck. Manila stock, dark print, and it
+   sits proud — lit lip on top, contact shadow underneath. */
+.comb__tab.is-on {
+  height: 17px;
+  background-image: linear-gradient(var(--light-angle), var(--card-hi) 0%, #d3c398 46%, var(--card-lo) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 252, 236, 0.75),
+    inset 0 -1px 0 rgba(90, 76, 46, 0.5),
+    0 2px 4px rgba(0, 0, 0, 0.65);
+}
+.comb__tab.is-on .comb__name {
+  color: #241f14;
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 246, 220, 0.5);
+}
+.comb__tab.is-on .comb__cnt { color: rgba(36, 31, 20, 0.72); }
+.comb__tab.is-on .comb__notch { display: none; }
+/* engaged marker, same teal dot as every other engaged control on this radio */
+.comb__tab.is-on::after {
+  content: '';
+  position: absolute;
+  right: 3px; top: 50%;
+  width: 3px; height: 3px;
+  margin-top: -1.5px;
+  border-radius: 50%;
+  background: var(--silk-teal);
+  box-shadow: 0 0 5px rgba(79, 189, 184, 0.9);
+}
+/* a tab with nothing behind it in the current scope is dead stock */
+.comb__tab.is-empty { opacity: 0.28; cursor: not-allowed; }
+
+/* --------------------------------------------------------------------------
+   2. THE SHEET — an ivory ledger under glass
+   ------------------------------------------------------------------------ */
+
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  /* same dial stock as the TUNING meter, lit from the upper left */
+  background-image:
+    radial-gradient(115% 150% at 20% 4%,
+      rgba(255, 250, 232, 0.62) 0%,
+      rgba(255, 244, 216, 0.16) 34%,
+      rgba(90, 74, 44, 0.1) 70%,
+      rgba(60, 48, 28, 0.24) 100%),
+    linear-gradient(var(--light-angle), var(--led-hi) 0%, #e5dbc0 46%, var(--led-lo) 100%);
+  box-shadow:
+    0 -1px 0 rgba(240, 235, 220, 0.3),
+    -1px 0 0 rgba(240, 235, 220, 0.2),
+    0 1px 0 rgba(0, 0, 0, 0.8),
+    1px 0 0 rgba(0, 0, 0, 0.7),
+    0 3px 9px rgba(0, 0, 0, 0.6);
+}
+.sheet__glass { z-index: 6; }
+
+/* the caption block printed at the head of the sheet */
+.sheet__cap {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 9px 4px;
+  border-bottom: 1px solid rgba(70, 60, 40, 0.4);
+}
+.sheet__scope {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--led-ink);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet__count {
+  flex: 0 0 auto;
+  font-family: var(--font-num);
+  font-size: 11px;
+  letter-spacing: 0.13em;
+  /* The sheet's headline number. It is the most consequential value on the
+     page — CUT BAND acts on exactly this — so it is printed at full data ink. */
+  color: rgba(34, 31, 25, 0.86);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.55);
+}
+
+/* sort bank: piano keys cut into the ledger's head, printed not chromed */
+.sheet__sort {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px 4px;
+  border-bottom: 1px solid rgba(70, 60, 40, 0.28);
+}
+.sheet__sort .silk { color: rgba(34, 31, 25, 0.72); text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5); }
+
+.pianolite { display: flex; gap: 2px; padding: 1px; border-radius: 2px;
+  background: rgba(60, 50, 30, 0.22); box-shadow: inset 0 1px 2px rgba(60, 50, 30, 0.45), 0 1px 0 rgba(255, 248, 226, 0.5); }
+.pianolite__key {
+  position: relative;
+  padding: 2px 7px 1px;
+  border-radius: 1px;
+  font-family: var(--font-silk);
+  font-size: 8px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(34, 31, 25, 0.72);
+  cursor: pointer;
+  background-image: linear-gradient(180deg, rgba(255, 250, 230, 0.7), rgba(190, 175, 140, 0.35));
+  box-shadow: inset 0 1px 0 rgba(255, 252, 240, 0.8), 0 1px 1px rgba(60, 50, 30, 0.35);
+}
+.pianolite__key[aria-checked='true'] {
+  transform: translateY(1px);
+  color: #171410;
+  font-weight: 700;
+  background-image: linear-gradient(180deg, rgba(150, 132, 96, 0.55), rgba(206, 190, 155, 0.55));
+  box-shadow: inset 0 2px 3px rgba(50, 40, 22, 0.6);
+}
+.pianolite__key[aria-checked='true']::after {
+  content: '';
+  position: absolute;
+  left: 50%; bottom: -3px;
+  width: 3px; height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: var(--silk-teal-d);
+  box-shadow: 0 0 4px rgba(79, 189, 184, 0.6);
+}
+
+/* column rule */
+.sheet__cols {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 0 8px;
+  padding: 2px 9px 2px 6px;
+  border-bottom: 1.5px solid rgba(50, 42, 26, 0.65);
+  background: rgba(120, 104, 68, 0.09);
+}
+.sheet__cols span {
+  font-family: var(--font-silk);
+  font-size: 7px;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+  color: rgba(34, 31, 25, 0.72);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5);
+  white-space: nowrap;
+}
+.sheet__cols, .entry { grid-template-columns: 9px minmax(0, 1.1fr) 26px 30px minmax(0, 1.35fr) 34px 40px 52px 44px; }
+
+/* --------------------------------------------------------------------------
+   FIX 6 — the ledger's data columns are content, not silkscreen.
+
+   Measured on this paper (`--led-hi` #f2e9d3 through the glass), three columns
+   were printed too faintly to read: INDEX TERMS at α .44 → 2.42:1, LISTENERS
+   at α .60 → 3.58:1 — the *default sort column*, the one the eye goes to first
+   — and CHECKED at α .50 → 2.79:1. All three failed 4.5:1.
+
+   α .78 on this stock measures 5.1:1, so all three clear the bar with margin.
+   The printed hierarchy is kept by the two axes that carry it in real print
+   and cost nothing in contrast: size and tracking. The station name stays the
+   largest at 10.5 px full ink; the data columns sit at 8.5–9.5 px on wider
+   tracking, which still reads as secondary matter at a glance. What changes is
+   only that the secondary matter can now be read at all.
+
+   The column *headings* stay at α .60: they are silkscreen — a printed rule on
+   the form, not a value — and they repeat information the columns carry.
+   ------------------------------------------------------------------------ */
+.entry__lis { font-family: var(--font-num); font-size: 9.5px; color: rgba(34, 31, 25, 0.78); white-space: nowrap; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.sheet__rows {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  z-index: 2;
+}
+
+/* --- one register entry: a ruled ledger line ---------------------------- */
+
+.entry {
+  display: grid;
+  gap: 0 8px;
+  align-items: center;
+  width: 100%;
+  height: 17px;
+  padding: 0 9px 0 6px;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid var(--led-rule);
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  color: var(--led-ink);
+  font-variant-numeric: tabular-nums;
+}
+/* every fifth line tinted, the way a ruled ledger is banded for the eye */
+.entry:nth-child(10n+6), .entry:nth-child(10n+7),
+.entry:nth-child(10n+8), .entry:nth-child(10n+9),
+.entry:nth-child(10n+10) { background: var(--led-band); }
+
+.entry__blip {
+  width: 5px; height: 11px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, rgba(120, 104, 68, 0.42), rgba(90, 76, 46, 0.28));
+  box-shadow: inset 0 1px 0 rgba(255, 248, 226, 0.4);
+}
+.entry__name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.005em;
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.4);
+}
+/* ORIG / LANG / KBPS / CODEC sat at α .70, which is 4.40:1 on a banded line —
+   the same defect, one notch less severe. Brought to the same .78 as the rest
+   of the data so the ledger has one ink weight for values and one for form. */
+.entry__cc, .entry__lang, .entry__kbps, .entry__codec, .entry__chk {
+  font-family: var(--font-silk);
+  font-size: 9px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(34, 31, 25, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.entry__tags {
+  min-width: 0;
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(34, 31, 25, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.entry__chk { color: rgba(34, 31, 25, 0.78); }
+
+.entry:hover { background: rgba(255, 176, 46, 0.13); }
+
+/* BEING TRIED: the amber blip lights and the line is ruled in amber.
+   Amber is already this product's "the receiver is working on it" — the same
+   tone as `.reg-fault.is-advice` for RE-LOCKING and the same as the panel's
+   advice annunciator. It is deliberately NOT the on-air orange below: resolving
+   a URL, opening a socket and filling a buffer are not being on the air. */
+.entry.is-trying {
+  background: linear-gradient(90deg, rgba(255, 176, 46, 0.3), rgba(255, 176, 46, 0.11));
+  box-shadow: inset 0 0 0 1px rgba(160, 96, 8, 0.35);
+}
+.entry.is-trying .entry__blip {
+  background: linear-gradient(180deg, #ffd489, var(--blip) 45%, #8a5406);
+  box-shadow: 0 0 6px rgba(200, 120, 10, 0.9);
+}
+.entry.is-trying .entry__name { font-weight: 700; }
+
+/* on air right now, seen from inside the register */
+.entry.is-onair .entry__blip {
+  background: linear-gradient(180deg, #fff3d8, #ff8b2a 45%, #8a3b06);
+  box-shadow: 0 0 8px rgba(224, 90, 10, 0.8);
+}
+
+/* ---------------------------------------------------------------------------
+   THE ANSWER TO THE CLICK, PRINTED WHERE THE CLICK WAS MADE.
+
+   The ledger says `Click an entry to take it on air`, and until now the entire
+   confirmation that it had worked was five pixels of orange in a nine-pixel
+   column at the far left of a seventeen-pixel row. A first-time user, watching
+   the line they had just clicked, could not tell whether the click had
+   registered at all — the front panel behind the raised lid knew perfectly
+   well, and the lid covers the front panel.
+
+   So the row itself is marked, in the three states the register is already
+   told about (`setAir` / `setPlayback`, see register.ts) and no new mechanism:
+
+     · is-trying   amber, the receiver is working on it
+     · is-onair    orange, the decoder is producing audio — and ONLY then
+     · is-faulted  maroon, it was clicked and it did not come up
+
+   The stamp is absolutely positioned, so it is not a grid item and cannot
+   disturb the nine printed columns; it sits over the CHECKED column of the one
+   row it describes. It is drawn like a rubber stamp on the ledger rather than a
+   chip in a web UI, because everything else on this sheet is print.
+   ------------------------------------------------------------------------- */
+
+.entry {
+  position: relative;
+}
+
+.entry.is-onair {
+  /* Wins the banded-row background on source order, and both of the two rules
+     that could tint this line are at the same specificity, so this must stay
+     below `:nth-child` and below `:hover`. */
+  background: linear-gradient(90deg, rgba(224, 90, 10, 0.34), rgba(224, 90, 10, 0.1) 72%, transparent);
+  box-shadow: inset 3px 0 0 #b4470a;
+}
+.entry.is-onair .entry__name {
+  font-weight: 700;
+  color: #6d2a03;
+}
+
+.entry.is-trying::after,
+.entry.is-onair::after,
+.entry.is-faulted::after {
+  position: absolute;
+  right: 5px;
+  top: 2px;
+  bottom: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+  border-radius: 1px;
+  font-family: var(--font-silk);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+/* Order matters: a row can carry the standing fault mark and be the line the
+   receiver is trying again, and what it is doing right now beats what it did. */
+.entry.is-faulted::after {
+  content: 'DID NOT PLAY';
+  color: #fdf3e0;
+  background: linear-gradient(180deg, #9c3f38, #7a2c26);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 226, 0.28);
+}
+.entry.is-trying::after {
+  content: 'TUNING…';
+  color: #2b1a02;
+  background: linear-gradient(180deg, #ffcf85, #e79a26);
+  box-shadow: inset 0 1px 0 rgba(255, 248, 226, 0.5);
+}
+.entry.is-onair::after {
+  content: 'ON AIR';
+  color: #fff6e6;
+  background: linear-gradient(180deg, #ff8b2a, #c85a08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 226, 0.45),
+    0 0 7px rgba(224, 90, 10, 0.55);
+  /* One flash as it lands, so a line that comes up while the eye is elsewhere
+     still announces itself. It restarts only when the class is newly added —
+     the ledger's rows are recycled and re-flagged on every paint, and a stamp
+     that re-flashed sixty times a minute would be its own defect. */
+  animation: entry-onair 620ms ease-out;
+}
+@keyframes entry-onair {
+  0% { transform: scale(1.16); box-shadow: 0 0 0 3px rgba(255, 139, 42, 0.55); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .entry.is-onair::after { animation: none; }
+}
+
+/* WILL NOT PLAY HERE — one mark, printed on the name, for the two conditions
+   the register knows about BEFORE the row is clicked. Law 4: it is printed,
+   struck and dated, never hidden, because a missing row leaves the user
+   wondering and a struck one does not.
+
+   The strike says *that*; the maroon column says *why*, and they are different
+   columns, so the two causes stay distinguishable at a glance:
+
+     · CHECKED prints FAIL  — the directory's checker could not reach it
+     · CODEC   prints HLS   — a stream Chromium has no demuxer for, which this
+                              receiver states outright the moment it is clicked
+                              ("HLS ONLY — THIS RECEIVER CANNOT DECODE IT")
+
+   HLS rows are in the default list on purpose (`EMPTY_SCOPE.hideHls` is false:
+   a struck, dated row beats a silently missing one). That is only honest if the
+   row is marked before the click, and a differently-coloured codec name three
+   columns to the right is not a mark a stranger will read as "this one will not
+   play". This comment used to claim "same treatment, different cause" while the
+   rule below gave the HLS row no strike at all. */
+.entry.is-dead .entry__name,
+.entry.is-hls .entry__name { text-decoration: line-through; opacity: 0.5; }
+.entry.is-dead .entry__chk { color: var(--silk-maroon); opacity: 0.95; }
+.entry.is-hls .entry__codec { color: var(--silk-maroon); }
+/* A struck row that is nonetheless the one being tried, on the air, or in
+   fault, is readable first as that: the mark it is wearing right now beats the
+   standing note about what it is. */
+.entry.is-trying .entry__name,
+.entry.is-onair .entry__name,
+.entry.is-faulted .entry__name { text-decoration: none; opacity: 1; }
+
+/* empty result: a designed state, printed on the sheet */
+.sheet__empty {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 0 40px;
+}
+.sheet.is-empty .sheet__empty { display: flex; }
+.sheet__empty .silk { color: rgba(34, 31, 25, 0.78); text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5); }
+.sheet__empty-big {
+  font-family: var(--font-silk);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  color: var(--silk-maroon);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.45);
+}
+
+/* --------------------------------------------------------------------------
+   3. RIGHT COLUMN — origin map over the monitor head
+   ------------------------------------------------------------------------ */
+
+.reg-right {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 0;
+}
+
+.mapbox {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mapbox__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(63, 211, 208, 0.2);
+  padding-bottom: 2px;
+}
+.mapbox__title { color: var(--lid-cyan); }
+.mapbox__read {
+  flex: 1 1 auto;
+  color: var(--lid-ink);
+  text-shadow: 0 0 6px rgba(63, 211, 208, 0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.mapbox__svg { display: block; width: 100%; height: auto; flex: 0 0 auto; }
+
+/* density dot: area ∝ stations printed at that origin */
+.map__den { fill: rgba(255, 176, 46, 0.42); stroke: rgba(255, 176, 46, 0.7); stroke-width: 0.4; cursor: pointer; }
+.map__den:hover { fill: rgba(255, 210, 130, 0.75); }
+.map__den.is-on { fill: #fff2d2; stroke: #fff; stroke-width: 0.7; }
+.map__ret { fill: none; stroke: var(--lid-cyan); stroke-width: 0.8; }
+
+/* SPIN — a spring-return paddle. Throws the origin index somewhere at random,
+   which is exactly what you did to a real shortwave set on a Sunday night. */
+.spin {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+.spin__paddle {
+  position: relative;
+  width: 30px; height: 13px;
+  border-radius: 2px;
+  cursor: pointer;
+  background-image: linear-gradient(180deg, #b6b0a0 0%, #857f73 48%, #514c44 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 252, 240, 0.7), inset 0 -1px 0 rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.6);
+  transition: transform 90ms ease;
+}
+.spin__paddle::after {
+  content: '';
+  position: absolute;
+  inset: 3px 6px;
+  background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.34) 0 1px, rgba(255, 255, 255, 0.28) 1px 2px);
+}
+.spin__paddle:active { transform: translateY(1.5px); box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.7); }
+.spin .silk { color: var(--lid-cyan); }
+
+/* --- the printed meter-band chart, exactly as screen-printed on the real lid,
+       now doing a job: it previews what the throw is about to cut. ---------- */
+
+.bandpreview {
+  flex: 0 0 auto;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bandpreview__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(63, 211, 208, 0.2);
+  padding-bottom: 2px;
+}
+.bandpreview__head .silk:first-child { color: var(--lid-cyan); }
+.bandpreview__head .silk:last-child { color: var(--lid-ink); opacity: 0.6; }
+.bandpreview__row { display: flex; gap: 2px; }
+.bandpreview__cell {
+  flex: 1 1 0;
+  text-align: center;
+  font-family: var(--font-silk);
+  font-size: 7.5px;
+  letter-spacing: 0.04em;
+  color: rgba(159, 227, 225, 0.35);
+  padding: 2px 0 1px;
+  border: 1px solid var(--lid-cyan-d);
+  border-radius: 1px;
+  opacity: 0.45;
+}
+/* a band the current scope would actually fill */
+.bandpreview__cell.is-lit {
+  opacity: 1;
+  color: #2a1d08;
+  font-weight: 700;
+  border-color: #8a5406;
+  background-image: linear-gradient(180deg, #ffd489, var(--blip) 55%, #b8730a);
+  box-shadow: 0 0 6px rgba(255, 176, 46, 0.45), inset 0 1px 0 rgba(255, 248, 220, 0.6);
+}
+/* the partially-filled last band */
+.bandpreview__cell.is-part {
+  opacity: 1;
+  color: #ffd489;
+  border-color: #8a5406;
+  background-image: linear-gradient(180deg, rgba(255, 176, 46, 0.22), rgba(138, 84, 6, 0.14));
+}
+
+/* --------------------------------------------------------------------------
+   4. THE BOTTOM RAIL — global filters, and the throw
+   ------------------------------------------------------------------------ */
+
+.reg-rail {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  /* The rail overflowed its own width by 56 px at the shipping 1280×820, which
+     is how CUT BAND's arrow came to be drawn at x 1273.5–1281.2 in a 1279 px
+     viewport. Wrapping is the structural guarantee rather than a width that
+     happens to fit: whatever the chassis is resized to, the throw comes down
+     onto its own line instead of off the edge of the lid. */
+  flex-wrap: wrap;
+  row-gap: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(63, 211, 208, 0.2);
+}
+.reg-rail__filters { display: flex; align-items: flex-end; gap: 16px; flex: 0 0 auto; }
+.reg-rail__filters .lever-unit { padding-bottom: 2px; }
+.reg-rail__group { display: flex; flex-direction: column; gap: 4px; }
+.reg-rail__group > .silk { color: var(--lid-cyan); }
+.reg-rail .lever-unit { flex-direction: row; align-items: center; gap: 6px; }
+.reg-rail .lever-unit .silk { color: var(--lid-ink); opacity: 0.75; }
+
+/* --- CUT BAND: the handoff --------------------------------------------- */
+
+.cut {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: 3px;
+  padding: 3px;
+  background: linear-gradient(180deg, #040506, #0f1113);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(226, 220, 205, 0.16);
+  /* FIX 2 — the visible push affordance. The whole assembly is one control, so
+     the whole assembly wears the cursor and takes the travel: the words CUT BAND
+     and the promise line under them had `cursor: default` and no listener, and a
+     real click on them measured `pixelsChanged=0`. */
+  cursor: pointer;
+  transition: transform 90ms ease-out;
+  /* It is a paddle, not a paragraph: dragging it must throw it, never sweep a
+     text selection across the engraving. */
+  user-select: none;
+}
+.cut:active { transform: translateY(1px); }
+/* The focusable control inside is 66 px of paddle; the ring belongs round the
+   thing a keyboard user is actually about to operate, which is all of it. */
+.cut:focus-within {
+  outline: 2px solid var(--silk-teal);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.cut__throw:focus-visible { outline: none; }
+
+/* engraved legend plate: what the throw will actually do, in numbers */
+.cut__plate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 11px 5px 9px;
+  /* A fixed width, not a range. It was `min-width: 176px; max-width: 236px`,
+     so the plate grew and shrank with the caption and the paddle beside it slid
+     horizontally as the numbers changed — a throw that moves when you are not
+     touching it. Two lines of promise are reserved below, for the same reason
+     in the other axis. */
+  flex: 0 0 auto;
+  width: 204px;
+}
+.cut__legend {
+  font-family: var(--font-silk);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--silk);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+}
+.cut__sub { color: var(--lid-ink); opacity: 0.72; }
+
+/* the throw itself: a metal paddle in a slot, travelling right */
+.cut__throw {
+  position: relative;
+  flex: 0 0 auto;
+  width: 66px;
+  border-radius: 2px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #05070a 0%, #101418 55%, #06080a 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.95), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+.cut__paddle {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 3px;
+  width: 30px;
+  border-radius: 2px;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0 1px, rgba(255, 255, 255, 0.1) 2px, rgba(0, 0, 0, 0.3) 100%),
+    conic-gradient(from var(--light-conic), var(--chr-1) 0deg, var(--chr-3) 30deg, var(--chr-2) 70deg,
+      var(--chr-4) 110deg, var(--chr-5) 150deg, var(--chr-2) 200deg, var(--chr-3) 240deg, var(--chr-5) 300deg, var(--chr-1) 360deg);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  transition: left 150ms cubic-bezier(0.25, 1.5, 0.45, 1);
+}
+.cut__paddle::after {
+  content: '';
+  position: absolute;
+  inset: 3px 7px;
+  background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.4) 0 1px, rgba(255, 255, 255, 0.32) 1px 2px);
+  border-radius: 1px;
+}
+.cut__throw.is-thrown .cut__paddle { left: 41px; }
+/* Under the hand the paddle tracks the pointer, so it must not also be easing
+   toward where the pointer was a frame ago. */
+.cut__throw.is-dragging .cut__paddle { transition: none; }
+.cut__arrow {
+  position: absolute;
+  right: 5px; top: 50%;
+  margin-top: -4px;
+  font-size: 10px;
+  line-height: 1;
+  color: rgba(63, 211, 208, 0.5);
+}
+.cut__throw.is-thrown .cut__arrow { color: var(--silk-teal); text-shadow: 0 0 6px rgba(79, 189, 184, 0.9); }
+.cut.is-dead { opacity: 0.4; pointer-events: none; cursor: default; }
+
+/* --------------------------------------------------------------------------
+   5. FACEPLATE DELTAS
+
+   The genre knob is gone. Its shaft carries the SW BAND SELECTOR's real job:
+   which meter band of the loaded register the drum is currently printed with.
+   Twelve detents, twelve printed meter bands, and a hard end-stop at whatever
+   the register actually filled. Beside it, the band plate the register cut.
+   ------------------------------------------------------------------------ */
+
+.plate__window { max-width: 460px; }
+.plate__scope {
+  font-family: var(--font-silk);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lcd-ink);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.28);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.plate__meta { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.plate__meta .silk { color: var(--lcd-ink-dim); text-shadow: 0 1px 0 rgba(255, 240, 200, 0.22); }
+.plate__band {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--lcd-ink);
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.3);
+}
+/* the plate relights when the register cuts a new one */
+@keyframes plate-strike {
+  0%   { filter: brightness(2.1) saturate(0.5); }
+  18%  { filter: brightness(0.55); }
+  38%  { filter: brightness(1.7); }
+  100% { filter: brightness(1); }
+}
+.plate__window.is-struck .genre__window-face { animation: plate-strike 620ms ease-out; }
+
+/* dead detents on the band arc: printed, unlit, unreachable */
+.kscale__num--dead { fill: rgba(199, 194, 180, 0.22); }
+.kscale__tick--dead { stroke: rgba(199, 194, 180, 0.16); }
+
+/* An empty drawer, printed. Never a blank pane. */
+.comb__none {
+  flex: 0 0 auto;
+  padding: 6px 4px;
+  color: var(--silk-maroon);
+  white-space: normal;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+/* The band shaft carries twelve real detents, so its printed arc needs room. */
+.genre__unit { --kd: 88px; }
+.genre__unit .kscale__num { font-size: 7.5px; }
+
+/* --------------------------------------------------------------------------
+   The cards you have pulled, gathered on the rail where you can see all of
+   them at once and push any one back. Manila stock, same as the comb tabs.
+   ------------------------------------------------------------------------ */
+
+.pulled {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 2px;
+}
+.pulled__label { color: var(--lid-cyan); flex: 0 0 auto; }
+.pulled__cards {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+/* The chips beside it wrap; this sentence could not, because `.silk` is
+   `nowrap` — so it ran out from under the rail and behind the CUT BAND plate.
+   It is the sentence that says the whole edition is in scope, which is exactly
+   the claim FIX 4 is about, so it is printed whole or not at all. */
+.pulled__none {
+  color: rgba(159, 227, 225, 0.4);
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+.pulled__card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 5px 2px 7px;
+  border-radius: 1px;
+  cursor: pointer;
+  font-family: var(--font-silk);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  font-weight: 700;
+  color: #241f14;
+  background-image: linear-gradient(var(--light-angle), var(--card-hi) 0%, #d3c398 46%, var(--card-lo) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 252, 236, 0.75),
+    inset 0 -1px 0 rgba(90, 76, 46, 0.5),
+    0 2px 3px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 0 rgba(255, 246, 220, 0.5);
+  max-width: 190px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.pulled__card:hover { background-image: linear-gradient(var(--light-angle), #efe2bd 0%, #ddcda2 46%, #c2b085 100%); }
+.pulled__card:active { transform: translateY(1px); box-shadow: inset 0 2px 3px rgba(70, 58, 32, 0.6); }
+.pulled__x { color: rgba(36, 31, 20, 0.55); font-size: 9px; }
+.pulled__return {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.25));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.pulled__return .silk { color: var(--lid-ink); }
+.pulled__return:active { transform: translateY(1px); }
+
+/* Printed service legend, screen-printed on the lid the way a 1977 set
+   printed its own instructions where you would need them. */
+.reg-legend {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(63, 211, 208, 0.16);
+}
+.reg-legend__t { color: var(--lid-cyan); }
+.reg-legend__list {
+  margin: 0;
+  padding-left: 15px;
+  list-style: decimal;
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  letter-spacing: 0.055em;
+  line-height: 1.55;
+  color: rgba(159, 227, 225, 0.55);
+  text-transform: uppercase;
+}
+.reg-legend__list li { padding-left: 1px; }
+.reg-legend__list li::marker { color: rgba(63, 211, 208, 0.5); }
+
+/* A ledger is ruled whether or not there is anything written on it. The rules
+   run to the foot of the page, so a short result reads as a short entry list on
+   a printed sheet rather than as an empty pane. */
+.sheet__rows {
+  background-image:
+    repeating-linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0) 0 16px,
+      var(--led-rule) 16px 17px
+    );
+}
+
+/* The deck continues below the drawer mouth. */
+.comb__list {
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), rgba(0, 0, 0, 0.15) 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), rgba(0, 0, 0, 0.15) 100%);
+}
+
+
+/* ---------------------------------------------------------------------------
+   Register frame — the register is the whole inside face of the lid.
+   ------------------------------------------------------------------------- */
+
+.register {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Law 4 — the state Design D admits it never drew: the register before its
+   index has been printed. Not a spinner and not a blank lid, but a printed
+   notice on the same stock, saying which of the two reasons it is. */
+.unprinted {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 0 18%;
+}
+.register.is-unprinted .reg { display: none; }
+.register.is-unprinted .unprinted { display: flex; }
+.unprinted__big {
+  font-family: var(--font-silk);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--lid-cyan);
+  text-shadow: 0 0 8px rgba(63, 211, 208, 0.25);
+}
+.unprinted.is-fault .unprinted__big { color: var(--silk-maroon); text-shadow: none; }
+.unprinted .silk { color: rgba(159, 227, 225, 0.6); line-height: 1.6; }
+
+/* The register's own head controls sit with the lid's close button. */
+.reg-head__right { display: flex; align-items: center; gap: 8px; }
+
+/* The free-text slot, milled into the ledger's own head block. */
+.sheet__namelab { margin-left: auto; color: rgba(34, 31, 25, 0.72); text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5); }
+.sheet__slot { width: 116px; margin: 0; flex: 0 0 auto; }
+.sheet__spacer { position: relative; }
+.sheet__pad { position: absolute; left: 0; right: 0; top: 0; }
+
+/* A note printed beside the sort bank: what the counts are cut against, or —
+   in maroon — that this answer is real but known to be short. */
+.sheet__note {
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: right;
+  margin-left: 12px;
+  color: rgba(34, 31, 25, 0.72);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheet__note.is-warning { color: var(--silk-maroon); opacity: 0.95; }
+
+/* Printing: the press is running, and the sheet says so on its own paper. */
+.sheet.is-loading .sheet__rows { opacity: 0.35; }
+
+.mapbox__foot { display: flex; align-items: center; min-height: 11px; }
+
+/* The lid's own face is the register's mount. */
+.lid__face { padding: 9px 13px 10px; gap: 7px; }
+
+
+/* ===========================================================================
+   FIX 1 · FIX 3 · FIX 4 · FIX 5 — printed states, the decade rule, the
+   engraved legend, and a keyboard that can reach the whole register.
+   =========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   FIX 4 — the index rail.
+
+   What was here was a five-step numbered tutorial in the right-hand column,
+   written in words the interface never printed: comb, card, deck. It is gone.
+   In its place, one engraved line above the three lists it describes, using
+   the only nouns the register actually labels: INDEX, term, scope.
+   ------------------------------------------------------------------------- */
+
+.combs__rail {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 1px 4px;
+  border-bottom: 1px solid rgba(63, 211, 208, 0.16);
+}
+.combs__rail-t { color: var(--lid-cyan); flex: 0 0 auto; }
+.combs__rail-h {
+  color: rgba(159, 227, 225, 0.62);
+  letter-spacing: 0.09em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combs__row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The legend the tutorial shrank to: two engraved lines of reference matter,
+   not instructions for operating a list. */
+.reg-legend__line {
+  margin: 0;
+  white-space: normal;
+  font-family: var(--font-silk);
+  font-size: 8.5px;
+  letter-spacing: 0.055em;
+  line-height: 1.55;
+  color: rgba(159, 227, 225, 0.62);
+  text-transform: uppercase;
+}
+
+/* The ledger's one printed instruction, engraved on the ledger head. */
+.sheet__use {
+  flex: 1 1 auto;
+  text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(34, 31, 25, 0.6);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5);
+}
+
+/* What CUT BAND is, engraved under the picture of what it fills. */
+.bandpreview__hint {
+  color: rgba(159, 227, 225, 0.6);
+  /* `.silk` is nowrap by default — correct for a one-word legend, wrong for a
+     sentence printed across a 300 px column. */
+  white-space: normal;
+  letter-spacing: 0.09em;
+  line-height: 1.5;
+  padding-top: 4px;
+}
+
+/* The chips are how a term comes back out of the scope, so the rail may never
+   squeeze them to nothing — which a long CUT BAND legend could, and did. It is a
+   floor the rail is allowed to reach rather than a fixed width, because the
+   alternative was the whole rail overflowing the lid by 56 px. */
+.pulled { flex: 1 1 186px; min-width: 186px; }
+
+/* CUT BAND's promise, printed in full or not printed at all.
+   `nowrap` + `text-overflow: ellipsis` measured `clientWidth 216 <
+   scrollWidth 261` and read "…SCOPE WIDER THA…" — an elided promise about what
+   a throw is about to commit 480 entries to. Two lines are reserved whatever
+   the caption currently says, so the words always fit and the rail never
+   changes height as the numbers change. */
+.cut__sub {
+  white-space: normal;
+  line-height: 1.35;
+  /* Two lines of `.silk--xs`, held open so the plate is the same size in every
+     state — including NOTHING TO CUT, which is one line. */
+  min-height: calc(2 * 1.35em);
+}
+
+/* ---------------------------------------------------------------------------
+   FIX 3 — the decade rule.
+
+   The notch is read against a fixed scale, so the scale is printed. One
+   hairline per tenfold of stations, evenly spaced because the scale is
+   logarithmic — the spacing arrives as `--notch-decade` from the module that
+   defines it, so the drawing and the arithmetic cannot drift apart.
+   ------------------------------------------------------------------------- */
+
+.comb__tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 1 px rule every fifth of the printed span; the span is five decades. */
+  background-image: repeating-linear-gradient(90deg, rgba(255, 176, 46, 0.13) 0 1px, transparent 1px 20%);
+  background-size: calc(var(--notch-decade, 12.4%) * 5) 100%;
+  background-repeat: no-repeat;
+}
+.comb__tab.is-on::before { display: none; }
+
+/* ---------------------------------------------------------------------------
+   FIX 1 — the printed states.
+
+   While the press is running, every number in the register is an em-dash and
+   says so in ink. The terms stay legible so the index is still navigable and
+   the pull that started the fetch is still visible; only the measurements go.
+   ------------------------------------------------------------------------- */
+
+.comb.is-unsettled .comb__n { color: var(--lid-ink); opacity: 0.75; }
+.comb.is-unsettled .comb__cnt { color: rgba(159, 227, 225, 0.45); }
+.comb.is-unsettled .comb__tab::before { opacity: 0.28; }
+.comb.is-unsettled .comb__name { color: rgba(185, 217, 216, 0.7); }
+
+/* PRINTING…, on the sheet's own paper. The rule under the head sweeps while
+   the press runs — a real activity indicator on a real elapsed clock beneath
+   it, so a 1 700 ms fetch is visibly working rather than visibly stuck. */
+.sheet.is-loading .sheet__cols {
+  background-image: linear-gradient(90deg,
+    rgba(255, 176, 46, 0) 0%, rgba(255, 176, 46, 0.35) 45%, rgba(255, 176, 46, 0) 90%);
+  background-size: 42% 100%;
+  background-repeat: no-repeat;
+  animation: press-run 1100ms linear infinite;
+}
+@keyframes press-run {
+  from { background-position: -45% 0; }
+  to   { background-position: 145% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet.is-loading .sheet__cols { animation: none; background-position: 50% 0; }
+}
+.sheet.is-loading .sheet__count { color: var(--silk-maroon); }
+/* The rows in hand already answer this scope; the press is only warming. */
+.sheet.is-repulling .sheet__count { opacity: 0.78; }
+
+.map__den.is-unknown {
+  fill: rgba(255, 176, 46, 0.18);
+  stroke: rgba(255, 176, 46, 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+   FIX 5 — a focus ring that survives a scroller.
+
+   Every list in the register clips horizontally, so the global 2 px offset
+   ring would be sliced off at the edges of the very rows a keyboard user is
+   walking. Inset it instead: same teal service outline, drawn inside the row.
+   ------------------------------------------------------------------------- */
+
+.comb__tab:focus-visible,
+.entry:focus-visible,
+.pulled__card:focus-visible {
+  outline: 2px solid var(--silk-teal);
+  outline-offset: -2px;
+  border-radius: 1px;
+}
+.pianolite__key:focus-visible { outline-offset: 1px; }
+.map__den:focus-visible {
+  outline: none;
+  fill: #fff2d2;
+  stroke: var(--silk-teal);
+  stroke-width: 1.4;
+}
+
+/* ---------------------------------------------------------------------------
+   FIX 6 — the fault strip, printed on the ledger.
+
+   The register's own head says CLICK AN ENTRY TO TAKE IT ON AIR. A click that
+   failed showed nothing here: the fault rendered onto the faceplate, which the
+   open lid completely covers. Measured `phase: error, kind: hls` at 0.39 s while
+   the register's own text matched none of /HLS ONLY|CANNOT DECODE|FAULT/.
+
+   So it is printed here, on the same ivory stock, directly under the instruction
+   it answers — a rubber-stamped REJECTED slip across the head of the ledger,
+   with the one control that does something about it right beside the words.
+   ------------------------------------------------------------------------- */
+
+.reg-fault {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 9px 5px;
+  border-bottom: 1px solid rgba(138, 54, 48, 0.5);
+  /* A stamp on paper: pigment sitting *on* the ledger, not a coloured panel
+     behind it. The sheet's own dial stock still reads through it. */
+  background-image: linear-gradient(180deg, rgba(138, 54, 48, 0.19), rgba(138, 54, 48, 0.07));
+  box-shadow: inset 0 1px 0 rgba(255, 248, 226, 0.42), inset 0 -1px 0 rgba(90, 40, 34, 0.28);
+}
+.reg-fault__big {
+  flex: 0 0 auto;
+  font-family: var(--font-silk);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--silk-maroon);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.55);
+}
+.reg-fault__why {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* A sentence, so it wraps rather than eliding — the same rule the CUT BAND
+     promise now follows, for the same reason. */
+  white-space: normal;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: rgba(52, 30, 26, 0.9);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5);
+}
+.reg-fault__where {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: rgba(52, 30, 26, 0.6);
+  text-shadow: 0 1px 0 rgba(255, 248, 226, 0.45);
+}
+.reg-fault__act { flex: 0 0 auto; align-self: center; }
+.reg-fault__act .silk { color: var(--silk-maroon); }
+
+/* RE-LOCKING is the receiver already doing something about it, so it is the
+   amber note rather than the red one — the same two tones the front panel's
+   annunciator uses. */
+.reg-fault.is-advice {
+  border-bottom-color: rgba(138, 84, 6, 0.45);
+  background-image: linear-gradient(180deg, rgba(255, 176, 46, 0.22), rgba(255, 176, 46, 0.08));
+}
+.reg-fault.is-advice .reg-fault__big { color: #8a5406; }
+.reg-fault.is-advice .reg-fault__act .silk { color: #8a5406; }
+
+/* The line that was clicked and did not come up, marked on the ledger itself so
+   the answer sits beside the gesture. */
+.entry.is-faulted {
+  background-image: linear-gradient(90deg, rgba(138, 54, 48, 0.26), rgba(138, 54, 48, 0.07) 60%, transparent);
+  box-shadow: inset 2px 0 0 var(--silk-maroon);
+}
+.entry.is-faulted .entry__name { color: var(--silk-maroon); font-weight: 700; }

@@ -1,0 +1,23 @@
+/* The whole faceplate stylesheet, in dependency order.
+   tokens must come first: everything else reads its custom properties. */
+
+@import './tokens.css';
+@import './base.css';
+@import './materials.css';
+@import './controls.css';
+@import './faceplate.css';
+@import './displays.css';
+@import './lid.css';
+@import './register.css';
+/* After register.css on purpose: the band plate's rules live there, and the
+   uncut/locked states below are revisions of them. */
+@import './panel-voice.css';
+@import './hostfail.css';
+
+/* `harness.css` is NOT imported here, and that is structural, not an omission.
+   This file is what `ui/boot.ts` loads, so anything reachable from it is in
+   the shipped bundle — the dev harness's control bar and its focus-ring demo
+   class were riding along in every production build for exactly that reason,
+   in the same way the mock feeder's JS once did. The harness page imports its
+   own chrome (see ui/harness/harness.ts), which keeps the two graphs disjoint
+   and lets test/ui/no-mock-in-production.test.ts prove it. */
