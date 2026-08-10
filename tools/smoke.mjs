@@ -653,16 +653,28 @@ async function main() {
   // IPC.reportState handler, so the only thing that can overwrite the sentinel
   // is the renderer publishing its own state.
   //
-  // MEASURED, and the direction matters: Engine.emit() runs off the meter loop,
-  // so at idle the renderer republishes faster than a 100 ms poll can see —
-  // both packaged and unpackaged, the sentinel is already gone by the first
-  // sample. An earlier version of this check asserted the sentinel ARRIVED and
-  // was therefore a race it lost ~half the time. Asserting it DEPARTS is the
-  // sound test: it fails only if the renderer has stopped publishing, which is
-  // exactly the white-screen / broken-preload condition worth catching. A
-  // broken preload script is the most platform-sensitive part of an Electron
-  // package (it is loaded by absolute path out of the asar) and is invisible to
-  // every other check here, because the window still paints without it.
+  // Asserting the sentinel DEPARTS is the sound direction. An earlier version
+  // asserted it ARRIVED and was a race it lost half the time. A broken preload
+  // is the most platform-sensitive part of an Electron package — loaded by
+  // absolute path out of the asar — and is invisible to every other check here,
+  // because the window still paints without it.
+  //
+  // But departure must be PROVOKED, not waited for. This comment used to record
+  // that "at idle the renderer republishes faster than a 100 ms poll can see".
+  // That is no longer true, and the check failed on a healthy packaged build
+  // because of it: `ReceiverHost.canSettle` parks the frame loop in standby, on
+  // purpose, and a parked renderer publishes nothing at all. That park is what
+  // takes standby from 6.1% of a core to 0.6%, so waiting for an unprompted
+  // republish is waiting for a battery bug to reappear.
+  //
+  // Verified rather than assumed: reverting `canSettle` to its pre-park form
+  // does NOT make the passive check pass, so the park was never what this was
+  // measuring — the app simply reaches rest before the poll starts.
+  //
+  // So provoke a publish through a control a user actually presses. The power
+  // dome moves the phase, the renderer must publish the change, and the publish
+  // still travels renderer -> preload -> IPC -> main — so a broken bridge fails
+  // exactly as loudly as before, while a healthy idle app no longer does.
   const sentinel = -((Date.now() % 1_000_000) + 0.5);
   const pushRes = await call(hooks, '/test/exec', {
     method: 'POST',
@@ -682,6 +694,17 @@ async function main() {
 
   let republished = null;
   if (pushed) {
+    // The provocation. A real press on the shipped power control, by its
+    // accessible name — not a test-only hook, so this exercises the same path a
+    // hand does. Its own result is not asserted: if the control is missing the
+    // republish simply never comes and the check below says so.
+    const wakeRes = await call(hooks, '/test/exec', {
+      method: 'POST',
+      body:
+        "(() => { const b = document.querySelector('[aria-label^=\"Radio power\"]'); " +
+        "if (!b) return 'no power control'; b.click(); return 'pressed'; })()",
+    });
+    evidence.playbackWake = wakeRes.json ? (wakeRes.json.value ?? wakeRes.json.error) : `HTTP ${wakeRes.status}`;
     for (let i = 0; i < 50; i++) {
       const again = await call(hooks, '/test/state');
       const p = again.json && again.json.playbackState;

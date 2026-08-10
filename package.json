@@ -1,12 +1,12 @@
 {
   "name": "psppcpr",
   "productName": "Weltempfänger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A desktop shortwave receiver that happens to stream internet radio.",
   "main": "dist/main/index.js",
   "license": "MIT",
   "author": "PSPPCPR <maintainer@psppcpr.invalid>",
-  "homepage": "https://github.com/psppcpr/weltempfaenger",
+  "homepage": "https://github.com/Eazy-E66/weltempfaenger",
   "scripts": {
     "dev": "vite",
     "build:renderer": "vite build",
