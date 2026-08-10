@@ -85,9 +85,40 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
 
     this.server = server;
     this.port = (server.address() as AddressInfo).port;
-    this.statsTimer = setInterval(() => this.pumpStats(), 200);
-    this.statsTimer.unref?.();
+    /* The stats pump is NOT armed here. See `syncStatsTimer`. */
     return { port: this.port, token: this.token };
+  }
+
+  /**
+   * THE STATS PUMP RUNS WHILE THERE IS A SESSION TO REPORT ON, AND NOT
+   * OTHERWISE.
+   *
+   * It used to be armed in `start()` and cleared only in `stop()` — that is,
+   * for the entire life of the application. In standby `sessions` is empty, so
+   * that was five main-process wakeups a second, eighteen thousand an hour, to
+   * iterate an empty Map and emit nothing. `unref()` does not help: an unrefed
+   * timer still fires on schedule, it merely declines to hold the loop open.
+   *
+   * Nothing is lost by gating it. The pump's only job is to push the byte/stall
+   * counters of *live* sessions at 5 Hz; with no session there is no counter to
+   * push, and every event that creates one (`/stream` accepted) or destroys one
+   * (`closeSession`, `closeAllSessions`, the session's own `close`) calls
+   * through here, so the timer is armed on the same tick the first session
+   * appears and disarmed on the tick the last one goes.
+   *
+   * This is the same rule as the engine's `syncTicker`, for the same reason:
+   * poll while there is something to observe, and not otherwise.
+   */
+  private syncStatsTimer(): void {
+    const wanted = this.server !== undefined && this.sessions.size > 0;
+    if (wanted === (this.statsTimer !== undefined)) return;
+    if (wanted) {
+      this.statsTimer = setInterval(() => this.pumpStats(), 200);
+      this.statsTimer.unref?.();
+      return;
+    }
+    clearInterval(this.statsTimer);
+    this.statsTimer = undefined;
   }
 
   /** Register an auxiliary loopback route (used for the test-hook channel). */
@@ -123,6 +154,7 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
     this.pending.delete(sessionId);
     this.sessions.get(sessionId)?.destroy(reason);
     this.sessions.delete(sessionId);
+    this.syncStatsTimer();
   }
 
   closeAllSessions(reason = 'shutdown'): void {
@@ -140,6 +172,7 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
 
   async stop(): Promise<void> {
     clearInterval(this.statsTimer);
+    this.statsTimer = undefined;
     this.closeAllSessions();
     const server = this.server;
     this.server = undefined;
@@ -220,6 +253,7 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
       prerollSeconds: minted.prerollSeconds,
     });
     this.sessions.set(sessionId, session);
+    this.syncStatsTimer();
 
     session.on('metadata', (m) => this.emit('metadata', m));
     session.on('open', (info) =>
@@ -239,7 +273,10 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
         ...(detail === undefined ? {} : { detail }),
         at: Date.now(),
       });
-      if (this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
+      if (this.sessions.get(sessionId) === session) {
+        this.sessions.delete(sessionId);
+        this.syncStatsTimer();
+      }
     });
 
     await session.run(res);

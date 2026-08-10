@@ -44,8 +44,9 @@ import {
   createLogbook,
   createPiano,
   createPresets,
+  type ButtonHandle,
 } from './components/parts';
-import { createLid } from './components/lid';
+import { caseTopDepth, createLid } from './components/lid';
 import type { RegisterSearchField } from './components/register';
 import { METER_BANDS } from '../../main/tuning/bandLayout';
 
@@ -54,6 +55,52 @@ export type { FaceplateHandle, FaceplateHandlers, BrowseResults } from './types'
 /** The power button's collar and its dome, CSS px — the dome is seated 4px in. */
 const POWER_D = 46;
 const POWER_DOME_D = 38;
+/**
+ * How long a lamp may pulse before it holds lit. Four cycles of the 1.1 s
+ * `lamp-pulse` keyframe in controls.css, plus a little slack so the animation
+ * finishes its last swing rather than being cut off part-way down.
+ *
+ * WHY A PULSE HAS AN END — read this before making it infinite again.
+ *
+ * A pulsing lamp is not free the way a composited animation on a plain surface
+ * is. The mini-lamps sit inside the faceplate's blended material stack —
+ * `isolation: isolate` groups with `mix-blend-mode` layers over them — and an
+ * animation on anything inside such a group cannot be handed to the compositor
+ * as its own layer: the group has to be re-blended, and therefore re-rastered,
+ * on every one of the sixty frames a second the animation asks for.
+ *
+ * Measured on the shipping build under Xephyr, standby, n=3 x 10 s, per-process
+ * `utime+stime` from /proc:
+ *
+ *   nothing pulsing ........................ 0.70% of a core (gpu 0.00)
+ *   ONE mini-lamp pulsing .................. 94.94% of a core (gpu 83.89)
+ *
+ * Ninety-four points of a core, for one 9 px dot, for as long as the window is
+ * on screen. The four remedies that do not work were all measured too, and none
+ * of them moved it: `will-change: opacity` (96.29), `contain: strict` plus
+ * `isolation: isolate` on the lamp (94.86), and animating `transform` instead of
+ * `opacity` (96.75). Promotion cannot rescue an element the blend group will not
+ * let out. Slowing the pulse to a 550 ms class toggle helped but did not fix it
+ * (15.44) — it is still a full re-blend, just fewer of them.
+ *
+ * What works is stopping. With the pulse finite the steady state is the baseline
+ * again: 0.20 / 0.30 / 0.30.
+ *
+ * And it is the better design, not merely the cheaper one. The pulse's job is to
+ * carry the eye from the sentence on the annunciator to the key that answers it
+ * — "PRESS THE LIT REGISTER KEY" — and a gesture that never stops has stopped
+ * being a gesture. What remains true afterwards is said by the lamp being LIT,
+ * which is the state, and by the sentence still standing on the panel. Nothing
+ * is taken away: the affordance is exactly as visible, it has merely finished
+ * pointing. Every fresh entry into the calling state pulses again, so a new
+ * fault or a new re-lock attempt gets its own call for the eye.
+ *
+ * NOTE ON THE MEASUREMENT: this box has no GPU (SwiftShader), so the "gpu
+ * process" is a CPU rasteriser and its 84-point share would be far smaller on
+ * real hardware. The ~11-point renderer share — style, layout invalidation and
+ * paint of the blend group, sixty times a second — would not.
+ */
+export const PULSE_MS = 4_600;
 /** The fasteners holding each carry handle to its cheek. */
 const CHEEK_BOSS_D = 13;
 const EMPTY_BAND: Band = {
@@ -64,6 +111,68 @@ const EMPTY_BAND: Band = {
   scaleMax: 108,
   scaleUnit: 'MHz',
 };
+
+/** A lamp whose pulse ends, and the lamp it drives. See `PULSE_MS`. */
+export interface AttentionLamp {
+  /**
+   * @param lit     the state: is this lamp's condition true right now?
+   * @param calling is the panel actively asking the eye to come here?
+   */
+  set(lit: boolean, calling: boolean): void;
+  destroy(): void;
+}
+
+/**
+ * Wrap a button's lamp so that "calling for attention" is a *gesture* with a
+ * beginning and an end, rather than a state that animates forever.
+ *
+ * `lit` passes straight through — the lamp is on exactly as long as its
+ * condition holds. Only the pulse is bounded: it starts on each fresh entry
+ * into the calling state, runs for `PULSE_MS`, and then the lamp holds lit.
+ *
+ * This is called from `render`, which runs at frame rate, so it must be free
+ * when nothing has changed — and it is: the flags only move on a transition, and
+ * `setLamp` is a guarded class write underneath.
+ */
+export function attentionLamp(btn: ButtonHandle): AttentionLamp {
+  let lit = false;
+  let calling = false;
+  let pulsing = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const stop = (): void => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+
+  return {
+    set(nextLit: boolean, nextCalling: boolean): void {
+      const began = nextCalling && !calling;
+      lit = nextLit;
+      calling = nextCalling;
+      if (began) {
+        // A new call for the eye: pulse again, from the top.
+        pulsing = true;
+        stop();
+        timer = setTimeout(() => {
+          timer = undefined;
+          pulsing = false;
+          btn.setLamp(lit, false);
+        }, PULSE_MS);
+      } else if (!calling && pulsing) {
+        // The panel stopped asking before the gesture finished.
+        pulsing = false;
+        stop();
+      }
+      btn.setLamp(lit, pulsing);
+    },
+    destroy(): void {
+      stop();
+      pulsing = false;
+    },
+  };
+}
 
 export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): FaceplateHandle {
   installTextureDefs();
@@ -285,6 +394,11 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
     lamp: 'amber',
     onPress: () => handlers.onLidToggle(!lidOpen),
   });
+
+  /* The two lamps that call for the eye. Both are bounded gestures; see
+     `PULSE_MS` for what an unbounded one costs. */
+  const registerLamp = attentionLamp(registerBtn);
+  const reconnectLamp = attentionLamp(reconnectBtn);
 
   // -------------------------------------------------------------------------
   // Layout
@@ -616,6 +730,32 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
 
   const panelGrid = shell.querySelector('.panel__grid') as HTMLElement;
 
+  /**
+   * Room the faceplate was handed beyond the height it asked for.
+   *
+   * Zero at the shipping default and at every window shape short enough that the
+   * case top wants the whole deck, so nothing downstream of it moves there. See
+   * `caseTopDepth` in components/lid.ts for where the surplus comes from, and
+   * `.drum` in displays.css / `.zone--tune` in faceplate.css for the two members
+   * that spend it.
+   *
+   * Written on `.shell__body` rather than on `.shell` with the other three, and
+   * that is a performance rule rather than a tidiness one. Custom properties
+   * INHERIT, and `.lid` is a child of `.shell` — so a property written there is a
+   * style invalidation of the register's ~4100 nodes, measured elsewhere in this
+   * build at 137–333 ms of blocked main thread (see the note at the top of
+   * lid.css). `.shell__body` is the faceplate's own subtree and holds neither the
+   * lid nor the register, which are siblings of it. Twice per reflow at worst —
+   * withdrawn before the faceplate is measured, granted after — and never at all
+   * when the number has not moved.
+   */
+  function publishSlack(slack: number): void {
+    const px = `${Math.round(slack)}px`;
+    if (shellBody.style.getPropertyValue('--panel-slack') !== px) {
+      shellBody.style.setProperty('--panel-slack', px);
+    }
+  }
+
   /** Publish a bay depth to the chassis and to the lid, in one place. */
   function applyBay(bay: number, h: number): void {
     shell.style.setProperty('--lid-bay', `${Math.round(bay)}px`);
@@ -643,6 +783,15 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
     // --- height → the lid --------------------------------------------------
     // Only genuine surplus is offered to the lid; the faceplate is never
     // shortened to raise it, because that would be padding wearing a costume.
+    //
+    // The slack is withdrawn BEFORE the faceplate is asked how much height it is
+    // short of, and that order is load-bearing rather than tidy. `--panel-slack`
+    // makes the faceplate's own content taller (`.zone--tune`'s padding), so a
+    // shortfall measured while the previous window shape's slack was still
+    // published is not this shape's shortfall. Measured with it left standing:
+    // dragging 640×900 → 1280×820 read a shortfall of 85 px against the true 5,
+    // took all 85 off the bay and printed a 95 px plate at the shipping default.
+    publishSlack(0);
     let bay = Math.max(0, h - PANEL_H);
     applyBay(bay, h);
 
@@ -679,6 +828,36 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
         }
         return;
       }
+    }
+
+    // --- and then the CASE TOP gets to decline the rest ---------------------
+    // Everything above this line is the reflow as it has always been: the whole
+    // surplus is the bay, and the bay is the plate. That is why a taller window
+    // used to buy nothing but unprinted ink — 139 px of it (43% of the plate) at
+    // the owner's own 1586×967, 310 px (58%) at 1920×1200, against a reference
+    // plate that is 158 px and full.
+    //
+    // A case top is as deep as the matter printed on it, not as deep as the
+    // window; `caseTopDepth` is that law and it lives with the printing. What it
+    // declines is NOT left as bay — that is the withdrawn `PLATE_MAX` defect,
+    // which capped the plate while `--lid-bay` still carried the whole surplus
+    // and so put up to 330 px of brushed aluminium between the plate's rail and
+    // the panel. The bay itself shrinks, `.shell__body` is `flex: 1 1 auto`, and
+    // the faceplate takes the height instead. Measured after this change,
+    // `.lid__rail` bottom → `.panel` top: 8 px at all eight window shapes, which
+    // is what it was before.
+    //
+    // Ordered after the shortfall pass on purpose: `bay` is by now the genuine
+    // surplus, i.e. the window height less everything the faceplate actually
+    // asked for, so at the default (deck 175, cap 175) this branch does nothing
+    // at all and the slack is zero.
+    const cap = caseTopDepth(Math.round(w));
+    if (bay > cap) {
+      publishSlack(bay - cap);
+      bay = cap;
+      applyBay(bay, h);
+    } else {
+      publishSlack(0);
     }
     pushBandContext();
 
@@ -810,7 +989,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
    */
   function paintRegisterLamp(): void {
     const stranded = band.slots.length === 0 && !lidOpen;
-    registerBtn.setLamp(stranded, stranded && noticeUp);
+    registerLamp.set(stranded, stranded && noticeUp);
   }
 
   function pushBandContext(): void {
@@ -900,7 +1079,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
 
       // The fault lamp is red because the engine said 'error' or 'stalled'.
       const faulted = state.phase === 'error' || state.phase === 'stalled';
-      reconnectBtn.setLamp(faulted || state.phase === 'reconnecting', state.phase === 'reconnecting');
+      reconnectLamp.set(faulted || state.phase === 'reconnecting', state.phase === 'reconnecting');
 
       /* --- the drum winds to the host's station, ONCE, WHEN IT CHANGES ---
        *
@@ -1076,6 +1255,8 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
     destroy() {
       window.removeEventListener('keydown', onShortcut, true);
       ro.disconnect();
+      registerLamp.destroy();
+      reconnectLamp.destroy();
       materials.destroy();
       tuning.destroy();
       drum.destroy();

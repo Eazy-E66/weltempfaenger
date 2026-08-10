@@ -670,15 +670,64 @@
   padding-bottom: 2px;
 }
 .mapbox__title { color: var(--lid-cyan); }
+/* THE FOOT OF THE MAP, AND WHY IT IS FOUR BOXES INSTEAD OF ONE.
+ *
+ * This box is 300 px wide at every window size — `.reg-right` is a fixed grid
+ * track, so a 1920-wide chassis does not give it one extra pixel. As a single
+ * `nowrap` + `ellipsis` text node it could only ever elide at its END, and the
+ * end of this line is the local clock. Measured over 14 rows of the live
+ * directory, seven were over: NPR 24 Hour Program Stream 421 px, Z100 403,
+ * Radio Anonymous 391, BBC World Service 381, 101 Smooth Jazz 361, KIIS FM 342,
+ * Radio Paradise 309, and CNN 302.8 in 300. What the listener saw was
+ * `≈18:10 LOC…` and, worse, the clock gone entirely.
+ *
+ * So the fields shrink in a stated order. `flex-shrink` is weighted by factor ×
+ * basis, so a large factor on the longest field takes nearly the whole overrun:
+ * the country name gives way first (still identifies when clipped), then the
+ * qualifier, then the station name — which the listener can also read on the
+ * tinted row under their pointer. The clock is `flex-shrink: 0` and cannot be
+ * the thing that falls off, which is the whole point. */
 .mapbox__read {
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Two lines, always — the subject on one, the facts on the other — so the
+     legend under it never moves as the hand runs down the ledger. One line was
+     300 px of budget for four fields; two is 600, which every row in the live
+     directory now fits inside without eliding anything at all. */
+  min-height: 2.15em;
   color: var(--lid-ink);
   text-shadow: 0 0 6px rgba(63, 211, 208, 0.4);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   text-align: left;
 }
+.mapread-facts {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+}
+.mapread {
+  min-width: 0;
+  /* `pre` and not `nowrap`: the hanging space that opens the second line is
+     load-bearing, and `nowrap` collapses leading whitespace on a flex item. */
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The subject, alone on the first line. The line break is the separator, which
+   is why this field carries none. */
+.mapread--name  { flex: 0 0 auto; max-width: 100%; }
+/* Second line, in the order they give way. The qualifier goes first and goes
+   whole: `COUNTRY AVERAGE` is already said by the broken ring on the map, so a
+   line with no room for it loses nothing the reader cannot see. The country
+   name is the field that is only said here, so it gives way last. */
+.mapread--qual  { flex: 0 2000 auto; }
+.mapread--where { flex: 0 20 auto; }
+/* The one field the listener is choosing by. It is never elided and never
+   pushed off the end; everything else gives way to it. */
+.mapread--clock { flex: 0 0 auto; }
 .mapbox__svg { display: block; width: 100%; height: auto; flex: 0 0 auto; }
 
 /* density dot: area ∝ stations printed at that origin */
@@ -686,6 +735,107 @@
 .map__den:hover { fill: rgba(255, 210, 130, 0.75); }
 .map__den.is-on { fill: #fff2d2; stroke: #fff; stroke-width: 0.7; }
 .map__ret { fill: none; stroke: var(--lid-cyan); stroke-width: 0.8; }
+
+/* Where the row under the pointer transmits from.
+ *
+ * Cream rather than the dots' amber and the reticle's cyan: the dots are the
+ * printed index and the reticle is the pull that is latched, and this is
+ * neither — it is a lamp following a hand, and it goes out when the hand does.
+ *
+ * Hidden until a row is actually under the pointer, and hidden by `opacity`
+ * rather than `display` so the group keeps its place in the paint order and a
+ * hover is one attribute plus one class. `pointer-events: none` because the
+ * options on this listbox are the density dots and a mark that swallowed a
+ * click would be a control with no job. */
+.map__origin {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease;
+}
+.map__origin.is-up { opacity: 1; }
+
+/* THE KNOCKOUT — the dark line under the bright one.
+ *
+ * Measured over the European dot swarm: the ring's stroke peaks at 200-221, the
+ * density-dot fill sits at 96 and the coastline at ~155, so the mark is already
+ * the brightest thing on that patch of map. Local contrast is where it loses —
+ * ring mean 168 against surround mean 127 is 1.33×, and the surround's brightest
+ * pixels reach 209, the ring's own maximum. Over the sparse United States the
+ * same measurement is 2.02× and the mark is perfectly legible.
+ *
+ * With no luminance margin left, a brighter or thicker cream stroke cannot buy
+ * separation from amber dots of the same brightness. A dark stroke drawn wider
+ * and UNDER it can, because it removes the ground instead of competing with it —
+ * the standard cartographic treatment for a symbol over a busy field. The glow
+ * that used to be here was cream, i.e. it added light exactly where the problem
+ * was too much light. */
+.map__origin-knock {
+  fill: none;
+  stroke: rgba(4, 8, 9, 0.92);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.map__origin-ring {
+  fill: none;
+  stroke: var(--lamp-cream);
+  stroke-width: 1.15;
+  filter: drop-shadow(0 0 1.5px rgba(246, 236, 210, 0.7));
+}
+.map__origin-pip { fill: var(--lamp-cream); }
+.map__origin-cross {
+  fill: none;
+  stroke: var(--lamp-cream);
+  stroke-width: 1;
+  stroke-linecap: round;
+  opacity: 0.9;
+}
+
+/* And the printed index steps back while a hand is pointing at one line of it.
+ *
+ * The dots are not repainted and not moved: one class on the svg takes the same
+ * ink down to a level where the mark has a field to stand on. It goes back the
+ * instant the pointer leaves the row. The on-air dot is exempt — that one is a
+ * measurement about what is playing and it does not dim for a hover. */
+.mapbox__svg.is-marking .map__den:not(.is-on) {
+  fill: rgba(255, 176, 46, 0.16);
+  stroke: rgba(255, 176, 46, 0.26);
+}
+.mapbox__svg.is-marking .map__coast {
+  opacity: 0.55;
+}
+/* A country average is not a transmitter, and it does not get a transmitter's
+   mark: the ring goes broken, the centre pip goes out, and the four ticks that
+   make the exact mark a RETICLE do not print at all. The dashes are the drawing
+   convention for an inferred boundary, which is exactly what this is — the mean
+   of the stations that DID publish coordinates.
+
+   TWO CORRECTIONS, BOTH MEASURED OVER THE EUROPEAN DOT SWARM.
+
+   1. The knockout used to be dashed as well, on the reasoning that a solid dark
+      ring under a broken bright one reads as solid. It does not: over the dense
+      swarm the whole mark degraded into four cream flecks that read as a
+      rendering artefact, because the dark halo is the only thing holding the
+      symbol together against a ground of the same brightness. The halo is the
+      GROUND being removed, not a second copy of the line, so it stays whole.
+      The dashes on the bright line alone are what say "inferred".
+   2. The dashes were the ONLY difference for most countries. The ring sizes
+      with the measured spread, which is honest and legible where it fires — the
+      United States opens to 8.18 units — but Germany, France, the Netherlands
+      and Hungary all measure under the 4.4 floor, so a country average drew at
+      exactly the size of a published fix and only a 2.2/1.8 dash pattern, one
+      pixel wide at 1:1, told them apart. Dropping the ticks makes the two
+      symbols different SHAPES: a reticle means "this point", a plain broken
+      circle means "somewhere in here". That reads at 1:1 without magnification,
+      which the dash never did. */
+.map__origin.is-approx .map__origin-ring {
+  /* Coarser than the 2.2/1.8 it was: at r = 4.4 that drew seven dashes round a
+     27.6-unit circumference and closed up into a solid line at 1:1. */
+  stroke-dasharray: 3.4 2.6;
+  stroke-width: 1.1;
+}
+.map__origin.is-approx .map__origin-pip { display: none; }
+.map__origin.is-approx .map__origin-cross,
+.map__origin.is-approx path.map__origin-knock { display: none; }
 
 /* SPIN — a spring-return paddle. Throws the origin index somewhere at random,
    which is exactly what you did to a real shortwave set on a Sunday night. */
@@ -718,7 +868,8 @@
 
 .bandpreview {
   flex: 0 0 auto;
-  margin-top: auto;
+  /* The bottom anchor moved up to `.cut`, which is now the first member of the
+     throw block: CUT BAND and the chart of what it fills travel together. */
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -764,7 +915,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   4. THE BOTTOM RAIL — global filters, and the throw
+   4. THE BOTTOM RAIL — global filters
    ------------------------------------------------------------------------ */
 
 .reg-rail {
@@ -790,10 +941,24 @@
 .reg-rail .lever-unit { flex-direction: row; align-items: center; gap: 6px; }
 .reg-rail .lever-unit .silk { color: var(--lid-ink); opacity: 0.75; }
 
-/* --- CUT BAND: the handoff --------------------------------------------- */
+/* --- CUT BAND: the handoff ---------------------------------------------
+ *
+ * IT LIVES IN THE RIGHT-HAND COLUMN NOW, AND THE REASON IS GEOMETRY.
+ *
+ * At the right-hand end of the bottom rail it measured x 969–1245, y 739.6–788
+ * on the shipping 1280×820. The faceplate's STATIONS key — the control that
+ * opens this drawer — measures x 960.6–1048, y 764–788. That is a 79 × 24 px
+ * intersection: 90% of the key. Press STATIONS, get no answer for a beat, press
+ * again as anyone would, and the second press lands on the one irreversible
+ * control in the product. Bottom of the right column it is 109 px clear of that
+ * key, and it sits directly above the twelve meter bands it fills.
+ * ------------------------------------------------------------------------ */
 
 .cut {
   flex: 0 0 auto;
+  /* The throw and the chart of what it fills are one block, anchored to the
+     foot of the column. `.bandpreview` used to carry this. */
+  margin-top: auto;
   display: flex;
   align-items: stretch;
   gap: 0;
@@ -812,14 +977,13 @@
   user-select: none;
 }
 .cut:active { transform: translateY(1px); }
-/* The focusable control inside is 66 px of paddle; the ring belongs round the
-   thing a keyboard user is actually about to operate, which is all of it. */
-.cut:focus-within {
+/* `.cut` is the button now — the element with the role, the name and the
+   listener — so the ring is its own rather than borrowed from a child. */
+.cut:focus-visible {
   outline: 2px solid var(--silk-teal);
   outline-offset: 2px;
   border-radius: 3px;
 }
-.cut__throw:focus-visible { outline: none; }
 
 /* engraved legend plate: what the throw will actually do, in numbers */
 .cut__plate {
@@ -828,13 +992,13 @@
   justify-content: center;
   gap: 1px;
   padding: 4px 11px 5px 9px;
-  /* A fixed width, not a range. It was `min-width: 176px; max-width: 236px`,
-     so the plate grew and shrank with the caption and the paddle beside it slid
-     horizontally as the numbers changed — a throw that moves when you are not
-     touching it. Two lines of promise are reserved below, for the same reason
-     in the other axis. */
-  flex: 0 0 auto;
-  width: 204px;
+  /* Width comes from the COLUMN, not from the caption. It was `min-width: 176px;
+     max-width: 236px`, so the plate grew and shrank with the numbers and the
+     paddle beside it slid horizontally — a throw that moves when you are not
+     touching it. In the right-hand column the plate is simply what is left over
+     after the 66 px paddle, which is the same number in every state. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .cut__legend {
   font-family: var(--font-silk);
@@ -846,6 +1010,17 @@
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
 }
 .cut__sub { color: var(--lid-ink); opacity: 0.72; }
+/* What the throw destroys, printed on the throw. Maroon because it is the same
+   fact the fault strip is printed in — a consequence, not a caption — and it is
+   standing matter, so it never reflows the plate. */
+.cut__warn {
+  margin-top: 2px;
+  color: var(--silk-maroon);
+  opacity: 0.95;
+  white-space: normal;
+  line-height: 1.3;
+}
+.cut.is-dead .cut__warn { visibility: hidden; }
 
 /* the throw itself: a metal paddle in a slot, travelling right */
 .cut__throw {
@@ -1128,7 +1303,7 @@
 /* Printing: the press is running, and the sheet says so on its own paper. */
 .sheet.is-loading .sheet__rows { opacity: 0.35; }
 
-.mapbox__foot { display: flex; align-items: center; min-height: 11px; }
+.mapbox__foot { display: flex; align-items: flex-start; min-height: 11px; }
 
 /* The lid's own face is the register's mount. */
 .lid__face { padding: 9px 13px 10px; gap: 7px; }
@@ -1329,6 +1504,11 @@
   flex: 0 0 auto;
   display: flex;
   align-items: baseline;
+  /* At 640 × 900 this was four items refusing to give way in a 280 px strip:
+     the sentence broke into seven one-word lines and the Reconnect button was
+     drawn on top of them. Wrapping is what a fault strip has to do — the words
+     matter more than the row they are on. */
+  flex-wrap: wrap;
   gap: 10px;
   padding: 4px 9px 5px;
   border-bottom: 1px solid rgba(138, 54, 48, 0.5);
@@ -1348,7 +1528,9 @@
   text-shadow: 0 1px 0 rgba(255, 248, 226, 0.55);
 }
 .reg-fault__why {
-  flex: 1 1 auto;
+  /* The one field with somewhere to go: it is a sentence, it already wraps, and
+     it is what gives way so `.reg-fault__where` can keep its subject. */
+  flex: 1 1 200px;
   min-width: 0;
   /* A sentence, so it wraps rather than eliding — the same rule the CUT BAND
      promise now follows, for the same reason. */
@@ -1359,12 +1541,22 @@
   color: rgba(52, 30, 26, 0.9);
   text-shadow: 0 1px 0 rgba(255, 248, 226, 0.5);
 }
+/* WHICH STATION DID NOT COME UP — AND IT KEEPS ITS SUBJECT.
+ *
+ * `flex: 0 1 auto` with an ellipsis put this in a box the sentence beside it had
+ * already taken: measured 93.7 px of text in a 62 px box, printing
+ * `RTL DID NOT …` where it should read RTL DID NOT COME UP. The whole point of
+ * this field is the station name and the verb; elided at 62 px it is neither.
+ * The faceplate's version of the same fault has always printed in full, so the
+ * register was the only surface that dropped it.
+ *
+ * It does not shrink now. `.reg-fault__why` is a sentence and already wraps, so
+ * it is the field with somewhere to go; this one wraps onto its own line at
+ * narrow widths rather than being cut. */
 .reg-fault__where {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: normal;
   color: rgba(52, 30, 26, 0.6);
   text-shadow: 0 1px 0 rgba(255, 248, 226, 0.45);
 }
@@ -1388,3 +1580,117 @@
   box-shadow: inset 2px 0 0 var(--silk-maroon);
 }
 .entry.is-faulted .entry__name { color: var(--silk-maroon); font-weight: 700; }
+
+/* ===========================================================================
+   FIX 11 — THE REGISTER AT THE WINDOW SIZES THE CHASSIS ACTUALLY ALLOWS.
+
+   `minWidth` is 860 and the register was broken well above it. Measured, with
+   the lid open, on the real build:
+
+     viewport   .entry__name   .lid__close right edge   .sheet needs / gets
+     1280            151 px            1245 (on screen)        660 / 660
+     1100             70 px            1065                    477 / 480
+     1020             35 px            1020 (on the edge)      477 / 400
+      960              8 px            1020 (60 off-screen)    477 / 340
+      900              0 px            1020 (120 off-screen)   477 / 280
+      860 and below    0 px            (scaled, still clipped) 477 / 280
+
+   Three separate failures, three separate causes:
+
+     · `.reg-ed`, the edition colophon, is a single unbreakable 614 px line. It
+       set the head's min-content width to 985 px, which set the whole
+       register's, which is why CLOSE LID was drawn at x 944-1020 in a 900 px
+       window. Nothing was "pinned" at 1020 — 1020 was the width the head
+       demanded and the panel could not shrink below.
+     · `.sheet__sort` — ORDER BY + six piano keys + the reconciliation note +
+       NAME + a 116 px type slot — refused to wrap, so the ledger's own
+       min-content width was 477 px whatever else was on the page.
+     · `.reg` was three fixed tracks: 228 + 300 + 22 of gap = 550 px gone before
+       the ledger got anything. Below 1020 the station-name column is what paid
+       for it, and a station browser with no station-name column is not one.
+
+   Below a 900 px viewport the lid stops reflowing and scales instead, so the
+   register's content width is `max(830, viewport - 70)` and 830 is the narrowest
+   layout that has to work. At 830 the restacked tier below gives the ledger
+   623 px and the name column 139.
+   ========================================================================= */
+
+/* The colophon gives way. It is real data and it is printed in full whenever
+   there is room, but it is the one line on the head that can be read later.
+   `overflow: hidden` on the left block is not cosmetic: without it the model
+   line kept its full 124 px inside a 98 px box and painted straight over the
+   edition line beside it. */
+/* The wordmark is the product's name and does not get clipped; the colophon
+   beside it is the field with somewhere to go. `overflow: hidden` is still
+   here because without it the model line kept its full 124 px inside a 98 px
+   box and painted straight over the edition line. */
+.reg-head__left { flex: 0 0 auto; min-width: 0; overflow: hidden; }
+.reg-head__mid  { flex: 0 1 auto; min-width: 0; }
+.reg-head__right { flex: 0 0 auto; }
+.reg-ed, .reg-title {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The sort bank comes down onto a second line rather than setting a 477 px
+   floor for the whole ledger. */
+.sheet__sort { flex-wrap: wrap; row-gap: 3px; }
+.sheet__note { min-width: 0; }
+
+/* The station name is the ledger's subject and is the last column to give way,
+   not the first. `minmax(64px, …)` makes INDEX TERMS — the widest secondary
+   field — collapse ahead of it, and CHECKED clip at the sheet's own edge,
+   before the name loses a single pixel. */
+.sheet__cols, .entry {
+  grid-template-columns: 9px minmax(64px, 1.1fr) 26px 30px minmax(0, 1.35fr) 34px 40px 52px 44px;
+}
+
+@media (max-width: 1219px) {
+  .reg { grid-template-columns: 196px minmax(0, 1fr) 268px; }
+}
+
+/* THE RESTACK. Below this the three-column body cannot give the ledger a usable
+   width, so the map column stops being a column: the origin index, the throw
+   and the band chart go under the index combs, and the sheet takes the full
+   height of what is left. That buys the ledger 623 px at the narrowest chassis
+   the app allows, against 280 before. */
+@media (max-width: 1119px) {
+  .reg {
+    grid-template-columns: 196px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .combs     { grid-column: 1; grid-row: 1; }
+  .reg-right { grid-column: 1; grid-row: 2; }
+  .sheet     { grid-column: 2; grid-row: 1 / span 2; }
+  /* Reference matter is the first thing off a crowded page: the legend and the
+     printed key list say nothing about the data in front of the reader, and
+     every key on it is live from anywhere in the product anyway. */
+  .reg-legend { display: none; }
+  /* Nothing is anchored to the foot of a column that is now sized to its
+     content, and the throw must not float away from the chart it fills. */
+  .cut { margin-top: 0; }
+  /* The instruction has done its work by the time the window is this small, and
+     the scope caption is the one thing on this line that carries data. */
+  .sheet__use { display: none; }
+  /* The model line is silkscreen under a wordmark that already says the same
+     thing. It was the block that overflowed the head and painted over the
+     edition line beside it. */
+  .reg-head__left .silk { display: none; }
+  /* The map's head measured 235 px of content in a 196 px box, which put the
+     SPIN paddle 39 px out over the ledger. The paddle is the control and stays;
+     the words beside it are a label for a control that is 30 px of knurled
+     chrome three pixels from the title that names the index. */
+  .spin .silk { display: none; }
+  .mapbox__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Twelve band cells at 208 px of min-content in a 196 px row. They are a
+     chart, not a table: each one may clip its own label rather than push the
+     chart past the column that holds it. */
+  .bandpreview__cell { min-width: 0; overflow: hidden; }
+  /* `FREQUENCY 1.8–30 MHZ` beside `12 OF 12 BANDS WOULD BE CUT` is 253 px of
+     min-content in a 196 px column. The count is the measurement and stays; the
+     printed title of the chart wraps under it rather than pushing the whole
+     column past the ledger. */
+  .bandpreview__head { flex-wrap: wrap; row-gap: 1px; }
+}

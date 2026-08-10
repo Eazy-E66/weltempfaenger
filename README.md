@@ -2,7 +2,11 @@
 
 **A desktop shortwave receiver that happens to stream internet radio.** Open the register, cut a band of stations onto the dial, then tune across them like it's 1977.
 
-![Weltempfänger](docs/media/weltempfaenger.png)
+![The receiver, on air](docs/media/listening.png)
+
+Open the register and every station is a row you can sort, filter and audition; hovering one shows where it transmits from, and the plate's timezone strip lights the hour it is there.
+
+![The World Station Register](docs/media/register.png)
 
 Real Icecast/SHOUTcast streams from the [Radio Browser](https://www.radio-browser.info/) open directory — 60,000+ stations, folded across spelling variants so `trip hop`, `trip-hop` and `triphop` all find the same 46 stations. Every reading on the panel is measured: the signal meter is RMS of decoded audio, the bitrate comes from the codec's own frames, and nothing on the glass claims playback the audio engine didn't report.
 

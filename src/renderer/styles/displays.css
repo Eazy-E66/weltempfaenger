@@ -12,8 +12,28 @@
   flex: 1 1 auto;
   min-height: 86px;
   /* A drum dial window is wide and shallow. Past this it stops reading as a
-     barrel behind glass and starts reading as a poster. */
-  max-height: 196px;
+     barrel behind glass and starts reading as a poster.
+     ...but 196 px flat was also the reason a taller window could not give the
+     faceplate its surplus height: the dial refused it, the surplus stayed a hole
+     under the drum, and the reflow therefore put it on the printed plate as dead
+     ink instead. So the ceiling now has two terms and neither can lower it:
+
+       · 196 px plus `--panel-slack`, the room the reflow handed the faceplate
+         beyond the height it asked for. That variable is 0px at the 1280×820
+         default and at every shape where the case top wants the whole deck, so
+         this is exactly 196 px there and the shipped default does not move.
+       · and never past 0.23 of `--dial-px`. The drum measures ~0.79 of that
+         published width, so this is ~29% of the drum's own width — which is the
+         proportion the owner's Windows reference prints its dial at (880 × 253).
+         Measured: 243 px at 1586 of case, 275 px at 1920.
+
+     `max(196px, …)` on the outside because `--dial-px` is small on a narrow
+     case: without it the ratio term would SHRINK the dial on a window that has
+     no surplus to spend, which is a regression in the other direction. */
+  max-height: max(
+    196px,
+    min(calc(196px + var(--panel-slack, 0px)), calc(var(--dial-px, 920px) * 0.23))
+  );
   border-radius: 3px;
   overflow: hidden;
   cursor: ew-resize;

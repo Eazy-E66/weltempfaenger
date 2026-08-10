@@ -199,10 +199,124 @@
   /* --- motion --------------------------------------------------------------
      How long the register sheet takes to travel its slot. 680 ms was already
      slower than any mechanism this size, and the swing it drove measured 4.2 s
-     end to end on the shipping build. A drawer this size is out in a fifth of a
-     second: fast off the mark, decelerating hard into the stop, which is a
-     sheet meeting its end rail rather than a panel easing to a halt. */
-  --lid-ms: 200ms;
+     end to end on the shipping build. It was then cut to 200 ms in a
+     performance pass and never tuned back for feel, which is why it read as a
+     cut rather than as a mechanism.
+
+     The two directions are not the same job, so they are not the same number.
+
+     `--lid-ms` is the DRAW-OUT: the one travel anybody watches, and the one
+     that has to read as a loaded drawer coming out of a slot. `--lid-ms-shut`
+     is the PUT-AWAY, which is what a misclick costs. It used to be shorter on
+     the argument that nothing waits on it finishing; it is now the same length,
+     because at 200 ms it did not animate at all — see the put-away note below.
+
+     Both numbers are MEASURED, on this machine, against the real build with the
+     register live and the live 62 040-station directory printed, counting
+     `Display::DrawAndSwap` — frames actually handed to the display — and never
+     `getComputedStyle` samples, which read an animation clock that may never
+     have been drawn.
+
+     THIS NUMBER WAS RE-SWEPT TWICE, AND ITS STATED REASON WAS WRONG ONCE.
+
+     280 was picked when the sheet re-rastered its whole subtree on every frame
+     of the travel, so raster scaled with duration and every extra millisecond
+     bought nothing but CPU. The rounded clip that caused that is gone (see the
+     note at `.lid__panel` in lid.css) and raster is now a fixed one-off cost
+     for the whole gesture, so the trade is a different one.
+
+     Re-swept on the shipping build, ten opens per candidate, real pointer press
+     on the plate, `Display::DrawAndSwap`:
+
+       | travel | presented frames min/med/max | fps at med | worst hole | raster |
+       |--------|------------------------------|------------|------------|--------|
+       | 240 ms | 4 / 6 / 6                    | 25.0       | 77 ms      | 301 ms |
+       | 280 ms | 6 / 7 / 7                    | 25.0       | 74 ms      | 293 ms |
+       | 340 ms | 6 / 9 / 9                    | 26.5       | 76 ms      | 335 ms |
+
+     Two things are flat and one scales. Raster is flat — it no longer scales
+     with duration, which is why 280's original argument expired. The frame RATE
+     is flat too, at 25-26.5 fps, wherever the duration is put. What scales is
+     the frame COUNT, linearly, because the rate does not move.
+
+     SO THERE IS NO PLATEAU AND THERE IS NO MACHINE CEILING, AND AN EARLIER NOTE
+     HERE CLAIMED BOTH. It read "it climbs to about 33 fps — this window's
+     ceiling on a machine with no GPU — and then stops", with a knee at 300 ms.
+     Neither survives measurement. Measured on this machine, a promoted layer
+     transitioning `transform` for one second, counting presented frames:
+
+       | moving layer      | presented |
+       |-------------------|-----------|
+       | 60 × 60           | 60 fps    |
+       | 640 × 410         | 38 fps    |
+       | 1279 × 819        | 60 fps    |
+
+     Sixty. The machine is not the limit and 26 fps is not "quality at the
+     ceiling" — it is what this particular sheet costs, and what it costs is
+     ~300 ms of raster per travel, spread across the travel rather than paid
+     before it.
+
+     THE "66-103 ms HOLE IN EVERY TRAVEL" IS RETRACTED. This note used to name
+     it as a second, discrete thing to attack, alongside the raster. It is not a
+     discrete event and there is nothing there to attack. Two measurements
+     killed it: blanking the sheet's contents cut raster fivefold and left the
+     gaps exactly where they were, and an empty div of the same size given the
+     identical travel showed the same class of gap. It is the tail of a slow
+     cadence, not a stall — 17-23 fps here against 47-56 fps for the contentless
+     control — so the only number worth attacking is the cadence itself, and the
+     cadence is raster.
+
+     WHAT THE CONTENTLESS CONTROL SAYS, WHICH IS THE FLOOR FOR THIS SHEET. An
+     empty rectangle of the same size, given the same 779 px / 340 ms travel,
+     interleaved in the same session: 11 / 14-16 / 19 presented frames, and
+     17-118 ms from click to `transitionstart`. The real sheet, warm, gets
+     3 / 7 / 8 at 221-382 ms. So neither the machine nor the duration is the
+     limit; what the sheet costs is its own raster, and it is rastered lazily —
+     cc prioritises tiles by VISIBLE rect, and while the sheet is home the
+     register is outside the viewport, so no amount of warming rasters it early.
+
+     WHY 340 THEN. Because with the rate fixed, choosing a duration is choosing
+     how long the listener waits and how many frames they get for it, and
+     nothing else. 240 ms presents six frames, which is a cut with three steps
+     in it. 340 presents nine, which is the fewest that read as a mechanism to
+     both readers who looked. Longer would buy more frames at the same rate and
+     charge the listener for them. It is a judgement between two measured
+     numbers, not a measurement of its own, and it is written down as one.
+
+     WHY THE PUT-AWAY IS NOW THE SAME 340, HAVING BEEN 200.
+
+     Because at 200 it did not exist. Measured on the shipping build it
+     presented ZERO frames, 14 of 14, and the note that used to be here argued
+     from that number that lengthening the token "would only move the vanish".
+     That reasoning was wrong, and it was wrong about which number is the
+     constraint: the close's click → `transitionstart` lag is 370-820 ms, so by
+     the time the style pass that creates the transition runs, a 200 ms budget
+     is entirely spent and Blink dispatches `transitionstart` and
+     `transitionend` in the same millisecond with `elapsedTime: 0.2`. The travel
+     is not cancelled; it is *over*.
+
+     Two changes together, both required, neither sufficient alone. The stow
+     came off the close's critical path (see `armStow` in lid.ts), and the
+     budget grew past the lag. Measured on this build, six closes per arm,
+     `Display::DrawAndSwap` between the panel's own `transitionstart` and
+     `transitionend`, real pointer press to open and Escape to close:
+
+       | close                          | presented frames min/med/max | travel  |
+       |--------------------------------|------------------------------|---------|
+       | 200 ms, stow inside the settle |  0 /  0 /  0                 | 0.2 ms  |
+       | 200 ms, stow deferred          |  0 /  2 /  5                 | 32-265  |
+       | 340 ms, stow deferred          |  1 /  7 /  9                 | 126-359 |
+       | 340 ms, stow deferred (rerun)  |  0 /  9 /  9                 | 332-356 |
+
+     Eleven of twelve closes across the two 340 ms runs animated. The opening
+     travel is unchanged by either — 0/5/7 before, 0/5/5 and 0/3/7 after — which
+     is the check that this bought the close's frames rather than moved them.
+
+     So the two directions are the same number now, and the reason the split
+     token stays is that they are still different jobs: if the close ever needs
+     to be shorter than the open again, this is where it goes. */
+  --lid-ms: 340ms;
+  --lid-ms-shut: 340ms;
   /* Measured off the curve, not chosen off a list: at a quarter of the travel
      time the sheet is 35% of the way down, at half 81%, at three quarters 96%.
      It takes up its slack, runs, and stops firmly against the end rail. The
@@ -218,6 +332,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root {
+    /* BOTH directions. A split token with only its draw-out silenced here is a
+       reduced-motion setting that still animates half the mechanism, which is
+       the same defect as not honouring it at all. */
     --lid-ms: 1ms;
+    --lid-ms-shut: 1ms;
   }
 }

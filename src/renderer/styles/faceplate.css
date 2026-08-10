@@ -395,7 +395,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-bottom: 2px;
+  /* The column spans the dial row, so when the reflow hands the faceplate room
+     (`--panel-slack`, see reflow() in ui/index.ts) this column grows by all of
+     it and `space-between` spends the lot on the gap: the memory jewels strand
+     against the top of the panel and the flywheel against the bottom, 330 px
+     apart, measured at 1920×1200. A third of the room to each end keeps the pair
+     together over the tuning hand, which is where the reference puts them.
+     `--panel-slack` is 0px at the shipping default, so this is `0 / 2px` there
+     and nothing in the default moves. */
+  padding-top: calc(var(--panel-slack, 0px) * 0.34);
+  padding-bottom: calc(2px + var(--panel-slack, 0px) * 0.34);
 }
 .sw-group--memory {
   align-items: center;

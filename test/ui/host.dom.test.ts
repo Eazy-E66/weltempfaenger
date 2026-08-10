@@ -1498,3 +1498,168 @@ describe('the readout on the level fast path', () => {
     readout.root.remove();
   });
 });
+
+// ---------------------------------------------------------------------------
+// A dead station is as motionless as standby, and must cost the same
+// ---------------------------------------------------------------------------
+
+/**
+ * `error` is the terminal phase: a station that has given up. There is no
+ * session, no reconnect in flight, no audio thread — the engine's own
+ * `syncTicker` stops its 10 Hz poll and idles the stage for exactly this phase —
+ * and the panel is a fixed sentence beside a steady lamp. Nothing moves.
+ *
+ * The frame loop did not agree. `canSettle` listed `idle` and nothing else, so a
+ * station whose stream is dead left `frame` re-arming sixty times a second, for
+ * as long as the window was open, presenting not one frame. Measured on the
+ * shipping build under Xephyr: 7.9% of a core on a dead mount against 0.3% in
+ * standby with the identical DOM, with an instrumented counter showing 60.2 Hz
+ * of `requestAnimationFrame` from exactly one caller — `frame`. A directory of
+ * user-submitted stream URLs produces dead mounts constantly, so this was the
+ * common case, not the edge one.
+ *
+ * These pin both halves. Parking is worth nothing if the panel cannot come back,
+ * so every wake route a fault can take is exercised: RECONNECT, a station
+ * change, a hand on a control, and the return of attention.
+ */
+describe('the frame loop on a dead station', () => {
+  /** The host's own rAF handle. 0 means the loop has parked. */
+  const parked = (r: Rig): boolean => (r.host as unknown as { raf: number }).raf === 0;
+
+  /** A station tuned to a mount that refuses, taken all the way to `error`. */
+  async function faulted(): Promise<Rig> {
+    const stations = rows('idle', 4);
+    const r = await booted((b) => {
+      b.answer = () => stations;
+      b.refuse = () => true; // the mount will not open: a terminal fault
+    });
+    r.host.handlers.onCut(stations, 'TEST', 'ANY RATE');
+    await vi.advanceTimersByTimeAsync(300);
+    audio.setLevel(0);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.states.at(-1)!.phase).toBe('error');
+    return r;
+  }
+
+  it('parks the loop on a fault, exactly as it parks in standby', async () => {
+    rig = await faulted();
+    expect(parked(rig)).toBe(true);
+  });
+
+  it('stays parked: a fault that nobody touches schedules no further frames', async () => {
+    rig = await faulted();
+    const r = rig;
+    const renders = r.states.length;
+    const levels = r.levels.length;
+
+    // Ten seconds of a dead station sitting in the corner.
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(parked(r)).toBe(true);
+    expect(r.states.length).toBe(renders);
+    expect(r.levels.length).toBe(levels);
+  });
+
+  it('wakes on RECONNECT and repaints', async () => {
+    rig = await faulted();
+    const r = rig;
+    expect(parked(r)).toBe(true);
+    const renders = r.states.length;
+
+    r.host.handlers.onReconnect();
+
+    // Synchronously armed — the press must not wait for a timer to be noticed.
+    expect(parked(r)).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.length).toBeGreaterThan(renders);
+    // And the press said so on the panel.
+    expect(r.notices.at(-1)).not.toBeNull();
+  });
+
+  it('wakes when the listener tunes somewhere else', async () => {
+    rig = await faulted();
+    const r = rig;
+    expect(parked(r)).toBe(true);
+    const renders = r.states.length;
+
+    r.host.handlers.onSelectStation('idle-2');
+
+    expect(parked(r)).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.length).toBeGreaterThan(renders);
+  });
+
+  it('wakes for a hand on a control', async () => {
+    rig = await faulted();
+    const r = rig;
+    expect(parked(r)).toBe(true);
+
+    r.host.handlers.onSetVolume(0.42);
+
+    expect(parked(r)).toBe(false);
+    await vi.advanceTimersByTimeAsync(64);
+    expect(r.states.at(-1)!.phase).toBe('error');
+  });
+
+  it('wakes when attention comes back, with the fault still on the panel', async () => {
+    rig = await faulted();
+    const r = rig;
+    expect(parked(r)).toBe(true);
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+
+    await vi.advanceTimersByTimeAsync(64);
+    expect(r.states.at(-1)!.phase).toBe('error');
+  });
+
+  it('takes the needle to the zero stop before it parks, never on a stale reading', async () => {
+    // The level gate is unchanged and still governs: the loop may only stop
+    // sampling a needle that is already at rest, whatever the phase says. A
+    // station that dies mid-programme is the case that proves it — the needle is
+    // deflected at the instant the fault arrives.
+    const stations = rows('idle', 4);
+    rig = await booted((b) => {
+      b.answer = () => stations;
+    });
+    const r = rig;
+    r.host.handlers.onCut(stations, 'TEST', 'ANY RATE');
+    await vi.advanceTimersByTimeAsync(300);
+    audio.setLevel(0.3);
+    r.bridge.stats({ bytesReceived: 64_000 });
+    r.element().ready(4);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(r.states.at(-1)!.phase).toBe('playing');
+    expect(parked(r)).toBe(false);
+    expect(r.levels.at(-1)).toBeGreaterThan(0);
+
+    // The decoder gives up on the source: not retryable, so it is terminal.
+    r.element().fail(4, 'MEDIA_ELEMENT_ERROR: format not supported');
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(r.states.at(-1)!.phase).toBe('error');
+    expect(parked(r)).toBe(true);
+    // The reading that parked the loop is the reading the panel is showing: the
+    // last frame the loop ran carried the needle down to the stop before it
+    // stopped sampling, so nothing is left deflected against a dead station.
+    expect(r.states.at(-1)!.signalLevel).toBe(0);
+  });
+
+  it('leaves every live phase running at frame rate', async () => {
+    // `buffering` is a phase whose reading changes on its own, so it may never
+    // park however still the needle happens to be at this instant.
+    const stations = rows('idle', 4);
+    rig = await booted((b) => {
+      b.answer = () => stations;
+    });
+    const r = rig;
+    r.host.handlers.onCut(stations, 'TEST', 'ANY RATE');
+    await vi.advanceTimersByTimeAsync(300);
+    r.bridge.stats({ bytesReceived: 4_000 });
+    audio.setLevel(0);
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(r.states.at(-1)!.phase).toBe('buffering');
+    expect(parked(r)).toBe(false);
+  });
+});

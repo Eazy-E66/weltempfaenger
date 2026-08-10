@@ -226,7 +226,10 @@ describe('a card pull, polled the way the critic polled it', () => {
     paddle.click();
     paddle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(rig.cuts).toHaveLength(0);
-    expect(paddle.getAttribute('aria-disabled')).toBe('true');
+    // On `.cut`, which is the element with the role, the name and the listener.
+    // `.cut__throw` is the paddle: a picture of a mechanism, `aria-hidden`, and
+    // the wrong place to have been announcing the control's state from.
+    expect(rig.root.querySelector('.cut')!.getAttribute('aria-disabled')).toBe('true');
 
     rig.handle.setRows(popPopulation(), { loading: false });
     expect(rig.text('.cut__sub')).toContain('5 629');
@@ -630,7 +633,7 @@ describe('rows that answer a scope which is no longer on the page', () => {
     paddle.click();
     paddle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(rig.cuts).toHaveLength(0);
-    expect(paddle.getAttribute('aria-disabled')).toBe('true');
+    expect(rig.root.querySelector('.cut')!.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('accepts them the moment the key names the scope that is up', () => {
@@ -785,6 +788,63 @@ function pointer(node: Element, type: string, x: number): void {
 }
 
 describe('CUT BAND', () => {
+  /**
+   * FIX 8 — THE THROW IS NOT UNDER THE KEY THAT OPENS THE DRAWER.
+   *
+   * Measured on the shipping 1280×820: the faceplate's STATIONS key sits at
+   * x 960.6–1048, y 764–788 and `.cut` sat at x 969–1245, y 739.6–788. The
+   * intersection was 79 × 24 px — 90% of the key. Press STATIONS, get no answer
+   * for a beat, press again as anyone does, and the second press throws the one
+   * irreversible control in the product: the lid shuts, the dial is replaced
+   * and the station that was on air is gone, with no undo anywhere.
+   *
+   * jsdom has no layout, so what is pinned here is the STRUCTURAL fact the
+   * geometry follows from: the throw is not in the bottom rail. In the right
+   * column it measures y 603–664 against the key's 764 — 100 px clear.
+   */
+  it('does not live in the bottom rail, where the STATIONS key is', () => {
+    rig = settledIdle();
+    const cut = rig.root.querySelector('.cut')!;
+    expect(rig.root.querySelector('.reg-rail .cut')).toBeNull();
+    expect(cut.closest('.reg-right')).not.toBeNull();
+    // Directly above the twelve meter bands it fills: the throw and the picture
+    // of what it does are one block now, and the block is bottom-anchored.
+    expect(cut.nextElementSibling?.classList.contains('bandpreview')).toBe(true);
+  });
+
+  it('is a button on the element that actually takes the click', () => {
+    rig = settledIdle();
+    const cut = rig.root.querySelector('.cut')!;
+    // The listener has always been on `.cut` — every click inside the assembly
+    // reaches it by bubbling. The role, the name and the tab stop were on
+    // `.cut__throw`, the 66 px paddle, so the most destructive control in the
+    // product announced itself to assistive technology as decoration.
+    expect(cut.getAttribute('role')).toBe('button');
+    expect(cut.getAttribute('tabindex')).toBe('0');
+    expect(cut.getAttribute('aria-label')).toMatch(/dial/i);
+    // Still exactly one button, not a button inside a button.
+    expect(rig.root.querySelectorAll('.cut [role="button"]')).toHaveLength(0);
+    expect(rig.root.querySelector('.cut__throw')!.getAttribute('aria-hidden')).toBe('true');
+    // The promise line is the description, so the numbers are heard before the
+    // throw rather than after it.
+    expect(rig.root.querySelector(`#${cut.getAttribute('aria-describedby')}`))
+      .toBe(rig.root.querySelector('.cut__sub'));
+  });
+
+  it('prints what it destroys, on the control that destroys it', () => {
+    rig = settledIdle();
+    // The promise line says what the throw will FILL. Nothing said what it
+    // replaces, and what it replaces is the dial the listener is listening on.
+    expect(rig.text('.cut__warn').toLowerCase()).toContain('dial');
+  });
+
+  it('keyboard activation is on the element that carries the tab stop', () => {
+    rig = settledIdle();
+    const cut = rig.root.querySelector('.cut') as HTMLElement;
+    cut.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(rig.cuts).toHaveLength(1);
+  });
+
   it('throws from a click on the words, not only on the paddle', () => {
     rig = settledIdle();
     // The exact target the critic clicked: the centre of the engraved legend,
@@ -1025,5 +1085,563 @@ describe('a click that fails', () => {
       rig.handle.setPlayback({ ...INITIAL_PLAYBACK_STATE, phase, station: hlsStation });
       expect((rig.root.querySelector('.reg-fault') as HTMLElement).style.display, phase).toBe('none');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hovering a row: where does it transmit from?
+// ---------------------------------------------------------------------------
+
+/**
+ * jsdom 25 has no `PointerEvent` constructor. A plain `Event` of the same type
+ * fires the same listener, which is the whole of what is under test — the
+ * marker is driven by the event, not by anything on the event object.
+ */
+function hover(node: Element, type: 'pointerenter' | 'pointerleave'): void {
+  node.dispatchEvent(new Event(type));
+}
+
+function visibleRows(r: Rig): HTMLElement[] {
+  return Array.from(r.root.querySelectorAll<HTMLElement>('.entry')).filter(
+    (n) => n.style.display !== 'none',
+  );
+}
+
+function mark(r: Rig): SVGGElement {
+  return r.root.querySelector('.map__origin') as SVGGElement;
+}
+
+/**
+ * A ledger whose rows the directory actually placed.
+ *
+ * `idlePage()` carries a country code and no coordinates at all, so it teaches
+ * `learnGeography` nothing and the map has no dots — which is the right answer
+ * for that page and the wrong fixture for anything about a marker.
+ */
+function placed(n = 12): Rig {
+  const r = mount();
+  r.handle.setIndex(index, null);
+  const list: StationRef[] = [];
+  for (let i = 0; i < n; i++) {
+    list.push(
+      station({
+        id: `fr-${i}`,
+        countryCode: 'FR',
+        geo: { lat: 46 + i * 0.2, lon: 2 + i * 0.2 },
+        clickCount: 100 - i,
+      }),
+    );
+  }
+  r.handle.setRows(list, { loading: false });
+  return r;
+}
+
+describe('the origin of the row under the pointer', () => {
+  it('is one persistent layer that is not a density dot', () => {
+    rig = settledIdle();
+    // Named apart from `map__den*` on purpose: those are counted and their node
+    // identity is pinned, and a marker joining that family would break both.
+    expect(rig.root.querySelectorAll('.map__origin')).toHaveLength(1);
+    expect(mark(rig).classList.contains('map__den')).toBe(false);
+    // Not an option on the listbox, and not a tab stop.
+    expect(mark(rig).getAttribute('role')).toBeNull();
+    expect(mark(rig).getAttribute('tabindex')).toBeNull();
+    expect(mark(rig).getAttribute('aria-hidden')).toBe('true');
+    expect(mark(rig).classList.contains('is-up')).toBe(false);
+  });
+
+  it('raises a solid mark where the directory placed the station', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    rig.handle.setRows([station({ id: 'fr-1', countryCode: 'FR', geo: { lat: 46, lon: 2 } })], {
+      loading: false,
+    });
+    const dot = rig.root.querySelector('.map__den')!;
+
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    // Same projection as the dots, which is why `mapX`/`mapY` are reused rather
+    // than re-derived: one station, so its fix and its country's average are the
+    // same point, and the two marks have to land on it identically.
+    expect(mark(rig).getAttribute('transform')).toBe(
+      `translate(${dot.getAttribute('cx')} ${dot.getAttribute('cy')})`,
+    );
+    // A published fix is not an average, and does not wear the average's dashes.
+    expect(mark(rig).classList.contains('is-approx')).toBe(false);
+    expect(rig.text('.mapbox__read')).toContain('FRANCE');
+    expect(rig.text('.mapbox__read')).toMatch(/\d\d:\d\d LOCAL/);
+  });
+
+  it('takes the mark down again and restores the standing readout', () => {
+    rig = placed();
+    const standing = rig.text('.mapbox__read');
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    expect(rig.text('.mapbox__read')).not.toBe(standing);
+    hover(visibleRows(rig)[0]!, 'pointerleave');
+    expect(mark(rig).classList.contains('is-up')).toBe(false);
+    // Recomputed by `paintMapRead`, never a remembered string.
+    expect(rig.text('.mapbox__read')).toBe(standing);
+  });
+
+  it('dashes the ring for a station placed only by its country', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    // One station teaches the centroid; the second carries no geography at all
+    // and can only be placed by the country the first one taught.
+    rig.handle.setRows(
+      [
+        station({ id: 'fr-fix', countryCode: 'FR', geo: { lat: 46, lon: 2 }, clickCount: 9 }),
+        station({ id: 'fr-blind', countryCode: 'FR', clickCount: 8 }),
+      ],
+      { loading: false },
+    );
+    const line = visibleRows(rig);
+    hover(line[1]!, 'pointerenter');
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    expect(mark(rig).classList.contains('is-approx')).toBe(true);
+    expect(rig.text('.mapbox__read')).toContain('COUNTRY AVERAGE');
+  });
+
+  it('says so, and lifts the mark, when there is no origin at all', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    rig.handle.setRows([station({ id: 'nowhere' })], { loading: false });
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    // Law 4: a designed state with words on it, not a blank map and no reason.
+    expect(mark(rig).classList.contains('is-up')).toBe(false);
+    expect(rig.text('.mapbox__read')).toContain('NO ORIGIN IN THE DIRECTORY');
+  });
+
+  it('hedges only the readings that are actually uncertain', () => {
+    // THE `≈` BELONGS TO THE CLOCK, NOT TO THE DOT — AND IT HAS TO BE RARE.
+    //
+    // First it keyed off how the POSITION was arrived at, so a fix inside a
+    // split country printed an unhedged time: a Phoenix station read `09:13
+    // LOCAL` against a true 08:13, at full brightness, with no mark. Then it
+    // keyed off the country being split at all, which hedged a Manhattan fix
+    // and put a third of the directory behind a `≈` — at that exposure the
+    // mark carries no information and the honest signal is worth less than
+    // before. It now keys off whether the RESOLUTION could have gone another
+    // way: a fix further than the margin from every other zone is exact.
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    rig.handle.setRows([station({ id: 'us-1', countryCode: 'US', geo: { lat: 40.7, lon: -74 } })], {
+      loading: false,
+    });
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    // Manhattan. Hundreds of kilometres of Eastern time in every direction.
+    expect(rig.text('.mapbox__read')).toMatch(/\d\d:\d\d LOCAL/);
+    expect(rig.text('.mapbox__read')).not.toContain('≈');
+
+    // The country average of the same country IS hedged: nobody published a
+    // position, so the most populous of six zones is standing in for the rest.
+    rig.handle.setRows(
+      [
+        station({ id: 'us-1', countryCode: 'US', geo: { lat: 40.7, lon: -74 }, clickCount: 9 }),
+        station({ id: 'us-blind', countryCode: 'US', clickCount: 8 }),
+      ],
+      { loading: false },
+    );
+    hover(visibleRows(rig)[1]!, 'pointerenter');
+    expect(rig.text('.mapbox__read')).toContain('≈');
+  });
+
+  it('does not hedge a country that keeps exactly one clock', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    rig.handle.setRows([station({ id: 'fr-1', countryCode: 'FR', geo: { lat: 48.85, lon: 2.35 } })], {
+      loading: false,
+    });
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    expect(rig.text('.mapbox__read')).toMatch(/\d\d:\d\d LOCAL/);
+    expect(rig.text('.mapbox__read')).not.toContain('≈');
+  });
+
+  it('re-resolves the row under a stationary pointer when the ledger scrolls', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    // Two hundred rows, so the ledger is virtualised and a scroll recycles the
+    // very node the pointer is sitting on.
+    const list: StationRef[] = [];
+    for (let i = 0; i < 200; i++) {
+      list.push(
+        station({
+          id: `row-${i}`,
+          countryCode: i === 0 ? 'FR' : 'JP',
+          geo: i === 0 ? { lat: 46, lon: 2 } : { lat: 35.7, lon: 139.7 },
+          clickCount: 1000 - i,
+        }),
+      );
+    }
+    rig.handle.setRows(list, { loading: false });
+
+    const slot = visibleRows(rig)[0]!;
+    hover(slot, 'pointerenter');
+    const before = mark(rig).getAttribute('transform');
+    expect(rig.text('.mapbox__read')).toContain('FRANCE');
+
+    // A wheel under a stationary pointer. The node never moved, so no
+    // `pointerleave` and no `pointerenter` fire — CSS `:hover` follows the
+    // pointer and the marker used to be left behind, so the tinted line said
+    // Japan while the map still marked France.
+    const body = rig.root.querySelector('.sheet__rows') as HTMLElement;
+    // jsdom has no layout, so `scrollTop` is a permanent zero unless it is
+    // defined onto the element. The register reads it and nothing else.
+    Object.defineProperty(body, 'scrollTop', { value: 400, configurable: true });
+    body.dispatchEvent(new Event('scroll'));
+
+    const nowHolding = visibleRows(rig)[0]!;
+    expect(nowHolding).toBe(slot);
+    expect(mark(rig).getAttribute('transform')).not.toBe(before);
+    // The line the pointer is now over is a different station in a different
+    // country, and the map and the words both say so.
+    expect(rig.text('.mapbox__read')).toContain('JP');
+    expect(rig.text('.mapbox__read')).not.toContain('ROW-0 ');
+  });
+
+  it('distrusts a fix its own country disowns, and says which it did', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    // Nine German stations agree where Germany is. The tenth claims 0,0 — the
+    // Gulf of Guinea — which the directory really does publish for stations
+    // filed in Minnesota, Wisconsin and California.
+    const list: StationRef[] = [];
+    for (let i = 0; i < 9; i++) {
+      list.push(
+        station({ id: `de-${i}`, countryCode: 'DE', geo: { lat: 51 + i * 0.1, lon: 10 }, clickCount: 100 - i }),
+      );
+    }
+    list.push(station({ id: 'de-junk', countryCode: 'DE', geo: { lat: 0, lon: 0 }, clickCount: 1 }));
+    rig.handle.setRows(list, { loading: false });
+
+    const junkRow = visibleRows(rig).find((n) => n.textContent?.includes('de-junk'))
+      ?? visibleRows(rig)[9]!;
+    hover(junkRow, 'pointerenter');
+    // Believed as a fix, this would draw a solid ring in the Atlantic and light
+    // GMT at full brightness. It is contradicted by every other station of its
+    // own country, so the country is believed instead and the mark wears the
+    // average's dashes.
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    expect(mark(rig).classList.contains('is-approx')).toBe(true);
+    expect(rig.text('.mapbox__read')).toContain('DISOWNED');
+  });
+
+  it('leaves an ordinary fix alone, however far the country is from it', () => {
+    rig = placed();
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    // The guard is 5 000 km and is not a border check: it must never start
+    // rejecting the honest fixes it sits among.
+    expect(mark(rig).classList.contains('is-approx')).toBe(false);
+    expect(rig.text('.mapbox__read')).not.toContain('DISOWNED');
+  });
+
+  it('takes the printed index down a key while a mark is up, and puts it back', () => {
+    rig = placed();
+    const svg = rig.root.querySelector('.mapbox__svg')!;
+    expect(svg.classList.contains('is-marking')).toBe(false);
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    // The dots themselves are untouched — this is one class on the svg, which
+    // is what buys the mark its contrast where the dots are densest.
+    expect(svg.classList.contains('is-marking')).toBe(true);
+    hover(visibleRows(rig)[0]!, 'pointerleave');
+    expect(svg.classList.contains('is-marking')).toBe(false);
+  });
+
+  it('gets the same map from the keyboard as from the pointer', () => {
+    rig = placed();
+    const line = visibleRows(rig)[0]!;
+    line.dispatchEvent(new Event('focusin'));
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    line.dispatchEvent(new Event('focusout'));
+    expect(mark(rig).classList.contains('is-up')).toBe(false);
+  });
+
+  it('never reports the origin of a row a recycled slot no longer holds', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    rig.handle.setRows([station({ id: 'fr-1', countryCode: 'FR', geo: { lat: 46, lon: 2 } })], {
+      loading: false,
+    });
+    const slot = rig.root.querySelector('.entry') as HTMLElement;
+    hover(slot, 'pointerenter');
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    hover(slot, 'pointerleave');
+
+    // The same slot, now holding nothing.
+    rig.handle.setRows([], { loading: false });
+    hover(slot, 'pointerenter');
+    expect(mark(rig).classList.contains('is-up')).toBe(false);
+  });
+
+  it('leaves the density dots node-identical however many rows are hovered', () => {
+    rig = placed();
+    const before = Array.from(rig.root.querySelectorAll('.map__den'));
+    expect(before.length).toBeGreaterThan(0);
+    const line = visibleRows(rig).slice(0, 10);
+    expect(line.length).toBeGreaterThan(1);
+    for (const node of line) {
+      hover(node, 'pointerenter');
+      hover(node, 'pointerleave');
+    }
+    // `paintMap` clears and rebuilds `denLayer`; a hover that reached it would
+    // replace every one of these. The marker lives in its own layer for exactly
+    // this reason.
+    expect(Array.from(rig.root.querySelectorAll('.map__den'))).toEqual(before);
+  });
+
+  it('answers originOf as a pure read, without painting anything', () => {
+    rig = mount();
+    rig.handle.setIndex(index, null);
+    const fix = station({ id: 'fr-1', countryCode: 'FR', geo: { lat: 46, lon: 2 } });
+    rig.handle.setRows([fix], { loading: false });
+    const dots = Array.from(rig.root.querySelectorAll('.map__den'));
+    const readBefore = rig.text('.mapbox__read');
+
+    expect(rig.handle.originOf(fix)).toEqual({
+      lat: 46,
+      lon: 2,
+      from: 'fix',
+      countryCode: 'FR',
+    });
+    expect(rig.handle.originOf(station({ id: 'x', countryCode: 'FR' }))).toEqual({
+      lat: 46,
+      lon: 2,
+      from: 'country',
+      countryCode: 'FR',
+    });
+    // No country code and no fix is the end of the chain — there is no atlas
+    // behind it, by design.
+    expect(rig.handle.originOf(station({ id: 'x' }))).toBeNull();
+    expect(rig.handle.originOf(station({ id: 'x', countryCode: 'ZZ' }))).toBeNull();
+    expect(rig.handle.originOf(undefined)).toBeNull();
+
+    expect(Array.from(rig.root.querySelectorAll('.map__den'))).toEqual(dots);
+    expect(rig.text('.mapbox__read')).toBe(readBefore);
+  });
+
+  /**
+   * THE MARK AND THE WORDS RETIRE TOGETHER — the repaint that used to separate
+   * them.
+   *
+   * `paintNow()` runs `paintSheet()` and then `paintMap()`, and `paintMap()`
+   * ended in BOTH of its branches with the STANDING readout. So every repaint
+   * that happened while a row was marked raised the mark, wrote the origin
+   * line, and then overwrote that line with `N ORIGINS PLACED` — leaving a
+   * reticle at opacity 1 over a country with no words under it at all. Found by
+   * changing the sort order with a row held.
+   */
+  it('does not let a repaint wipe the words out from under a standing mark', () => {
+    rig = placed();
+    const line = visibleRows(rig)[0]!;
+    hover(line, 'pointerenter');
+    const marked = rig.text('.mapbox__read');
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    expect(marked).toContain('FRANCE');
+
+    // The gesture: a sort key, which is a full repaint and touches nothing the
+    // map's own signature reads.
+    const keys = Array.from(
+      rig.root.querySelectorAll<HTMLElement>('.sheet__sort .pianolite__key'),
+    );
+    keys.find((k) => k.getAttribute('aria-checked') !== 'true')!.click();
+
+    // Both, or neither. Never a mark with the standing line under it.
+    expect(mark(rig).classList.contains('is-up')).toBe(true);
+    expect(rig.text('.mapbox__read')).toContain('FRANCE');
+    expect(rig.text('.mapbox__read')).not.toMatch(/ORIGINS( PLACED)?$/);
+  });
+
+  /**
+   * The clock is a box of its own, which is the whole of the width repair.
+   *
+   * `.mapbox__read` is 300 px at every window size, and as one text node with
+   * `text-overflow: ellipsis` the only thing it could ever elide was its own
+   * tail — the local clock. Measured over 14 live rows, seven overflowed, worst
+   * 421 px. The stylesheet can only protect the clock if the clock is a
+   * separate element with its own `flex-shrink`, so that is what this pins.
+   */
+  it('gives the clock a box of its own that nothing else can push out', () => {
+    rig = placed();
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    const read = rig.root.querySelector('.mapbox__read')!;
+    const clock = read.querySelector('.mapread--clock')!;
+    const where = read.querySelector('.mapread--where')!;
+    expect(clock).not.toBe(where);
+    expect(clock.textContent).toMatch(/\d\d:\d\d LOCAL/);
+    expect(where.textContent).toContain('FRANCE');
+    // The station name is on its own line, so nothing on the second line has to
+    // give way to it and the concatenation still reads as one sentence.
+    expect(rig.text('.mapbox__read')).toContain('FRANCE');
+    expect(rig.text('.mapbox__read')).toMatch(/\d\d:\d\d LOCAL/);
+  });
+});
+
+/**
+ * WHERE A COUNTRY IS, WHEN ITS OWN DIRECTORY DISAGREES WITH ITSELF.
+ *
+ * The measured defect these pin: on a cold start the register had learned eight
+ * Russian stations — seven in Moscow and one publishing Point Nemo in the South
+ * Pacific — and the arithmetic mean of the eight put RUSSIAN FEDERATION ·
+ * COUNTRY AVERAGE at 42.7 N, 17.5 E, the Adriatic Sea. Load more rows and the
+ * same station moved continent, because a mean is a function of what happened
+ * to have arrived.
+ */
+describe('the country centroid', () => {
+  /** Rows that teach geography without being about anything else. */
+  function taught(rows: Array<[string, number, number]>, mounted = mount()): Rig {
+    const r = mounted;
+    r.handle.setIndex(index, null);
+    r.handle.setRows(
+      rows.map(([cc, lat, lon], i) =>
+        station({ id: `${cc}-${i}`, countryCode: cc, geo: { lat, lon }, clickCount: 100 - i }),
+      ),
+      { loading: false },
+    );
+    return r;
+  }
+  const seat = (r: Rig, cc: string): { lat: number; lon: number } | null => {
+    const o = r.handle.originOf(station({ id: 'blind', countryCode: cc }));
+    return o && { lat: o.lat, lon: o.lon };
+  };
+
+  it('is not moved off the continent by one station in the South Pacific', () => {
+    // The exact population that produced the defect, to the degree.
+    const moscow: Array<[string, number, number]> = [
+      ['RU', 55.737, 37.591],
+      ['RU', 55.742, 37.631],
+      ['RU', 55.806, 37.589],
+      ['RU', 55.79, 37.644],
+      ['RU', 55.745, 37.613],
+      ['RU', 55.723, 37.482],
+      ['RU', 55.538, 37.566],
+    ];
+    rig = taught([['RU', -48.877, -123.393], ...moscow]);
+    const s = seat(rig, 'RU')!;
+    // The mean of these eight is 42.7, 17.5 — the Adriatic. The median is the
+    // seven that agree.
+    expect(s.lat).toBeGreaterThan(55);
+    expect(s.lat).toBeLessThan(56);
+    expect(s.lon).toBeGreaterThan(37);
+    expect(s.lon).toBeLessThan(38);
+  });
+
+  it('answers the same wherever in the load the outlier arrived', () => {
+    const pts: Array<[string, number, number]> = [
+      ['RU', 55.74, 37.62],
+      ['RU', 55.75, 37.6],
+      ['RU', 55.76, 37.61],
+      ['RU', -48.877, -123.393],
+    ];
+    const first = seat(taught(pts), 'RU');
+    const last = seat(taught([pts[3]!, pts[0]!, pts[1]!, pts[2]!]), 'RU');
+    // A mean is order-independent too; what was not was the *population*, which
+    // grew as the user browsed. So the real pin is the next test.
+    expect(last).toEqual(first);
+  });
+
+  it('does not move a country because more of its stations loaded', () => {
+    rig = taught([
+      ['DE', 52.52, 13.4],
+      ['DE', 48.14, 11.58],
+      ['DE', 50.11, 8.68],
+    ]);
+    const before = seat(rig, 'DE');
+    // The same three again — the host re-pulls on every scope change — plus two
+    // more from the same cities. A running sum counted the first three twice.
+    rig.handle.setRows(
+      [
+        station({ id: 'DE-0', countryCode: 'DE', geo: { lat: 52.52, lon: 13.4 } }),
+        station({ id: 'DE-1', countryCode: 'DE', geo: { lat: 48.14, lon: 11.58 } }),
+        station({ id: 'DE-2', countryCode: 'DE', geo: { lat: 50.11, lon: 8.68 } }),
+        station({ id: 'DE-3', countryCode: 'DE', geo: { lat: 50.11, lon: 8.68 } }),
+        station({ id: 'DE-4', countryCode: 'DE', geo: { lat: 50.11, lon: 8.68 } }),
+      ],
+      { loading: false },
+    );
+    const after = seat(rig, 'DE')!;
+    expect(after.lat).toBeCloseTo(50.11, 2);
+    expect(after.lon).toBeCloseTo(8.68, 2);
+    expect(before).not.toBeNull();
+  });
+
+  it('averages longitude the short way round the world', () => {
+    // Fiji straddles the 180th meridian. Arithmetically these average to 0° —
+    // the Gulf of Guinea, half a planet away.
+    rig = taught([
+      ['FJ', -17.6, 178.4],
+      ['FJ', -17.8, 177.4],
+      ['FJ', -16.5, -179.9],
+      ['FJ', -16.8, -179.4],
+    ]);
+    const s = seat(rig, 'FJ')!;
+    expect(Math.abs(s.lon)).toBeGreaterThan(175);
+    expect(s.lat).toBeLessThan(-16);
+  });
+
+  it('does not place a country its own stations put 7 500 km apart', () => {
+    // The cold-start `CN`: two stations, one in Ürümqi and one in Shanghai, and
+    // the point between them is uninhabited western Tibet. There is no answer
+    // here, so Law 4 gets one instead of a plausible-looking marker.
+    rig = taught([
+      ['CN', 43.8, 87.6],
+      ['CN', 31.2, 121.5],
+      ['CN', 24.9, 10.4],
+    ]);
+    expect(rig.handle.originOf(station({ id: 'blind', countryCode: 'CN' }))).toBeNull();
+    // …and the map does not draw a dot for a place it has just refused to name.
+    const labels = Array.from(rig.root.querySelectorAll('.map__den')).map((n) =>
+      n.getAttribute('aria-label'),
+    );
+    expect(labels.some((l) => l?.startsWith('CN'))).toBe(false);
+  });
+
+  /** A ledger of one blind station over a country the rows have just taught. */
+  function blindOver(cc: string, pts: Array<[number, number]>): Rig {
+    const r = mount();
+    r.handle.setIndex(index, null);
+    r.handle.setRows(
+      [
+        station({ id: `${cc}-blind`, countryCode: cc, clickCount: 999 }),
+        ...pts.map(([lat, lon], i) =>
+          station({ id: `${cc}-${i}`, countryCode: cc, geo: { lat, lon }, clickCount: 100 - i }),
+        ),
+      ],
+      { loading: false },
+    );
+    return r;
+  }
+  const ringR = (r: Rig): string =>
+    mark(r).querySelector('.map__origin-ring')!.getAttribute('r') ?? '';
+
+  it('opens the reticle to the spread it measured, and no wider', () => {
+    // A point marker over a country 4 000 km across asserts a precision nobody
+    // published. Four US cities: the ring is drawn at the median distance from
+    // the centre, in the map's own units.
+    rig = blindOver('US', [
+      [40.7, -74],
+      [41.9, -87.6],
+      [34.1, -118.2],
+      [39.7, -105],
+    ]);
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    expect(mark(rig).classList.contains('is-approx')).toBe(true);
+    expect(Number(ringR(rig))).toBeGreaterThan(4.4);
+    // Never wider than the last honest reading — past that the country is not
+    // placed at all.
+    expect(Number(ringR(rig))).toBeLessThanOrEqual(16);
+
+    // A country whose stations agree keeps the mark it has always had, to the
+    // attribute: the marker over Europe was tuned against that exact radius.
+    rig = blindOver('NL', [
+      [52.37, 4.9],
+      [51.92, 4.48],
+      [52.09, 5.12],
+    ]);
+    hover(visibleRows(rig)[0]!, 'pointerenter');
+    expect(ringR(rig)).toBe('4.4');
+    expect(mark(rig).querySelector('.map__origin-cross')!.getAttribute('d')).toBe(
+      'M-8.4 0 H-6 M6 0 H8.4 M0 -8.4 V-6 M0 6 V8.4',
+    );
   });
 });

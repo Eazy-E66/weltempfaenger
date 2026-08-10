@@ -127,16 +127,48 @@
   background-image: linear-gradient(180deg, #8f8b7f 0%, #6f6c64 46%, #4b4842 100%);
 }
 
+/* The handle. It spans the whole case top between the two latches and it names
+   what is behind it, so it is the part of this object a hand reaches for — and
+   it now draws the sheet, which it did not. See the note at `lipTitle` in
+   lid.ts: measured on the real build, a press on its dead centre moved nothing
+   for 3.5 s, because the only live parts of the bar were the two 44 × 15 px
+   grips at its ends.
+
+   The affordance is in the cursor and in the hover, not in new furniture: the
+   reference case top is a plain silkscreened bar and it stays one. `grab`
+   rather than `pointer` because what is under the hand is one long handle, not
+   a row of small controls — the same reason the plate uses it. */
 .lip__title {
   position: relative;
   z-index: 2;
   flex: 1 1 auto;
   display: flex;
   justify-content: center;
+  /* The whole depth of the bar, not the 7 px the line of type happened to be.
+     `.lip` centres its children, so this box measured 1144 × 7 and a press that
+     missed the type by four pixels missed the handle — which is most of a 26 px
+     bar. Stretched, it is the bar. The type stays vertically centred in it, so
+     nothing about the printing moves. */
+  align-self: stretch;
+  align-items: center;
+  cursor: grab;
+}
+.lip__title:active {
+  cursor: grabbing;
 }
 .lip__title .silk {
   color: #4b483f;
   text-shadow: 0 1px 0 rgba(255, 252, 244, 0.4);
+  transition: color 110ms ease;
+}
+/* Silkscreen under a finger: the ink takes the light the way the latch caps do,
+   and nothing else on the bar moves. */
+.lip__title:hover .silk {
+  color: #322f28;
+}
+.lip__title:active .silk {
+  color: #232019;
+  text-shadow: 0 1px 0 rgba(255, 252, 244, 0.24);
 }
 
 /* ---------------------------------------------------------------------------
@@ -163,7 +195,7 @@
    a layout. Measured on this build, at 1280×820, on the machine this ships to:
    setting `--lid-y` on `.lid` and forcing layout cost **137–333 ms of blocked
    main thread**; the same movement written straight onto `.lid__panel.style`
-   costs a single element's recalc. There is a 200 ms travel to fit inside; a
+   costs a single element's recalc. There is a 340 ms travel to fit inside; a
    third of a second of style invalidation does not fit inside it.
 
    `--lid-print-t` is the one exception, because the printed matter genuinely is
@@ -193,12 +225,89 @@
    well; `--lid-y` is 0 at home and `--lid-travel` when it is drawn out, which is
    the whole of the mechanism.
 
-   `will-change: transform` is not a hint here, it is the performance fix. It
-   promotes the sheet to its own layer and widens the paint interest rect to
-   cover the part of it that is still inside the slot, so the register is
-   rasterised while it is out of sight and the travel is a composited blit
-   rather than a repaint. On the old build a click cost 2.72 s before one pixel
-   moved, because the register was `display: none` until then.
+   `will-change: transform` promotes the sheet to its own compositor layer, and
+   that is the whole of what it does here. On the old build a click cost 2.72 s
+   before one pixel moved, because the register was `display: none` until then;
+   a sheet that is always laid out and always promoted is what removed that.
+
+   WHAT IT DOES NOT DO, RETRACTED HERE. This note used to claim it "widens the
+   paint interest rect to cover the part of it that is still inside the slot, so
+   the register is rasterised while it is out of sight and the travel is a
+   composited blit rather than a repaint". That is false in both halves.
+   `will-change` is a promotion hint; it does not schedule raster. Blink records
+   a display list for the layer, and cc then prioritises TILES by their visible
+   rect — so a layer parked outside the viewport is not rastered early, it is
+   rastered when its tiles come into view, which here is during the travel.
+
+   Traced on this build, one open: ten tiles rastered before the travel and ten
+   more DURING it with zero id overlap, ~300 ms of raster spanning +35 ms to
+   +250 ms of a 340 ms travel, with the compositor emitting `checkerboard` quads
+   (median 13, max 32). The sheet is drawn with un-rastered holes while it
+   moves. That is the real ceiling on this travel — not the duration, not the
+   machine — and nothing in this file currently lifts it. Measured floor for
+   comparison: an empty div of the same size given the identical 779 px / 340 ms
+   travel presents 11 / 14-16 / 19 frames against this sheet's 3 / 7 / 8.
+   ------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   WHAT THE SHEET MAY NOT CARRY WHILE IT IS MOVING, ALL OF IT MEASURED.
+
+   Traced on this build with `Display::DrawAndSwap` — frames actually handed to
+   the display, not `getComputedStyle` samples, which read an animation clock
+   that may never have been drawn and gave this project a false "6/6 animated".
+
+   1. NO ROUNDED CLIP ON THE MOVING SUBTREE, EVER. `border-radius: inherit` on
+      `.lid__face` (778 px tall, `overflow: hidden`) and on `.lid__sheen` (952 px,
+      two full-bleed gradients) is a rounded clip over a moving subtree, and that
+      cannot be handed to the compositor as a clip: Blink bakes it into the paint
+      and re-rasters the whole subtree on EVERY frame of the travel. Measured
+      with a bare transition and the register rendered, at the 280 ms this travel
+      was before the fix let it be re-swept: **1 040 ms of RasterTask over the
+      travel with the radii, 210 ms without** — a 5× cut, and the difference
+      between 20 tiles re-rastered per frame and one raster for the whole
+      gesture. That is also why the duration could be re-swept at all: raster no
+      longer scales with it (see tokens.css). Those two stay square, always.
+
+   2. NO ROUNDED CORNER ON THE SHEET *WHILE IT TRAVELS*, WHICH IS NOT THE SAME
+      RULE AND HAS A DIFFERENT CAUSE.
+
+      The plate's own bottom corners — `.lid__panel`, `.lid__rail`, `.lid__edge`
+      — are moulded round, and the case the user runs shows them round. They were
+      deleted with (1) as if they were the same defect. They are not: the panel
+      clips nothing and the rail is 7 px tall, so neither costs a single
+      RasterTask. What a radius on the panel costs is OPACITY. A layer with
+      rounded corners has transparent corners, so `contents_opaque` is false, so
+      cc will not let the sheet occlude the faceplate behind it and re-composites
+      every quad of it on every frame — the same mechanism as (3) below, and the
+      same price. Measured here, `Display::DrawAndSwap`, alternating conditions in
+      one session so nothing drifts, n = 12 opens each:
+
+        | sheet corners        | presented frames (min/med/max) | raster, median |
+        |----------------------|--------------------------------|----------------|
+        | square               |  5 / 10 / 12                   | 188 ms         |
+        | round                |  4 /  5 /  6                   | 192 ms         |
+        | square               |  8 / 10 / 12                   | 179 ms         |
+        | round                |  3 /  4 /  6                   | 193 ms         |
+        | round, flat on swing |  7 / 10 / 12                   | 206 ms         |
+
+      **Half the frames, and raster untouched** — which is the proof it is
+      occlusion and not paint. So the corner is on the case at rest, in both rest
+      positions, and comes off for the length of the travel, exactly as the cast
+      shadow does. What is lost for those 340 ms is a 7 px corner on an object
+      crossing the screen; what is bought is twice the frames.
+
+   3. NO CAST SHADOW WHILE IT MOVES. A `box-shadow` paints outside the border
+      box, so the layer is not `contents_opaque`, so cc will not let the sheet
+      occlude what is behind it and every quad of the faceplate — eleven render
+      surfaces of blended material — is re-composited under it on every frame.
+      Measured cost of one presented frame while the sheet moves: **60 ms with
+      the shadow, 30 ms without**; putting `opacity: .99` back on the opaque
+      version returns it to 74 ms, which is the proof that it is occlusion and
+      not the shadow's own pixels.
+
+      So the channel shading is present at rest, in both rest positions, and
+      comes off for the 340 ms the sheet is in motion. What is lost for that
+      340 ms is a 7 px penumbra in a 15 px gutter, behind a moving object.
    ------------------------------------------------------------------------- */
 
 .lid__panel {
@@ -213,6 +322,11 @@
   transform: translate3d(0, 0, 0);
   display: flex;
   flex-direction: column;
+  /* The two corners the case is moulded with. `.lid__print` paints no ground of
+     its own, so what shows through the curve is this element's own background —
+     which is why the radius has to be here and not only on the rail. Measured:
+     with the rail rounded alone the corner stays square, because the panel's
+     square background sits behind the rail's curve and fills it back in. */
   border-radius: 0 0 7px 7px;
   background-color: var(--lid-base);
   will-change: transform;
@@ -222,11 +336,39 @@
     3px 0 7px rgba(0, 0, 0, 0.5),
     -1px 0 3px rgba(0, 0, 0, 0.34);
 }
+/* See (2) and (3) above: while the sheet travels it is an opaque rectangle or it
+   is not an animation. Both come back the moment it lands.
+ *
+ * Written as three selectors and not as a custom property on `.lid`: a custom
+ * property that CHANGES lands on 4 100 inheriting nodes and cost 137-333 ms of
+ * blocked main thread when it was last tried here (see the note at the top of
+ * this file). This matches three elements. */
+.lid[data-swing='true'] .lid__panel,
+.lid[data-swing='true'] .lid__rail,
+.lid[data-swing='true'] .lid__edge {
+  border-radius: 0;
+}
+.lid[data-swing='true'] .lid__panel {
+  box-shadow: none;
+}
 /* The travel is the ONLY animated moment. While the sheet merely tracks the
    window it follows it exactly: a transition on a dragged value is a lag, and a
-   lagging sheet is one painted over the faceplate for the length of it. */
+   lagging sheet is one painted over the faceplate for the length of it.
+
+   Direction-keyed, because a drawer coming out and a drawer going away are not
+   the same gesture. Both are 340 ms today — the put-away was 200 ms and did not
+   animate at all at that length (0 presented frames, 14 of 14; see the put-away
+   note in tokens.css) — and the rule stays split because the two are still
+   different jobs and a future close may want a different number. Safe as
+   written because `setOpen`
+   writes `data-swing` and then `data-open` in the SAME task, before
+   `applyTravel()` writes the transform — so the duration the transition starts
+   with is already the one for the direction it is about to go. */
 .lid[data-swing='true'] .lid__panel {
-  transition: transform var(--lid-ms) var(--lid-ease);
+  transition: transform var(--lid-ms-shut) var(--lid-ease);
+}
+.lid[data-swing='true'][data-open='true'] .lid__panel {
+  transition-duration: var(--lid-ms);
 }
 /* Nothing on the sheet may be touched until it is out. (`inert` says the same
    thing to the keyboard and to assistive technology; this says it to the
@@ -241,7 +383,8 @@
   z-index: 1;
   flex: 1 1 auto;
   min-height: 0;
-  border-radius: inherit;
+  /* No radius — see (1) at `.lid__panel`. This is the 778 px subtree whose
+     rounded clip cost the travel its frames. */
   overflow: hidden;
   isolation: isolate;
   display: flex;
@@ -265,6 +408,9 @@
   height: 7px;
   z-index: 5;
   pointer-events: none;
+  /* Matches the panel it caps. Not `inherit`: `.lid__face` and `.lid__sheen`
+     inheriting it is what cost the travel its raster, and this is a 7 px strip
+     that clips nothing. */
   border-radius: 0 0 7px 7px;
   background: linear-gradient(180deg, #43464b 0%, #24272a 34%, #101214 72%, #060708 100%);
   box-shadow:
@@ -280,8 +426,13 @@
   position: absolute;
   inset: 0;
   z-index: 4;
-  border-radius: inherit;
   pointer-events: none;
+  /* Follows the moulded corner. Without it the right-hand edge's 2 px dark band
+     runs on past the curve and reads as a black nub in the corner — measured on
+     the bottom row of the rail as a non-monotonic 40, 33, 17, 20 against the
+     reference's clean 22, 18, 65, 80. No background and no children here, so the
+     radius is a shape on two 0-blur inset shadows and nothing else. */
+  border-radius: 0 0 7px 7px;
   box-shadow:
     inset 2px 0 0 rgba(255, 250, 235, 0.16),
     inset -2px 0 0 rgba(0, 0, 0, 0.66);
@@ -293,13 +444,12 @@
  * Two linear gradients, not a pair of full-bleed radials. The radials read a
  * shade better and cost about 130 ms of software raster across a 1250 × 953
  * layer every time the sheet travels, on a machine with no GPU. The travel is
- * 200 ms long; a vignette does not get to spend two thirds of it. */
+ * 340 ms in each direction; a vignette does not get to spend most of either. */
 .lid__sheen {
   position: absolute;
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  border-radius: inherit;
   background:
     linear-gradient(var(--light-angle), rgba(255, 250, 235, 0.09) 0%, rgba(255, 250, 235, 0) 14%),
     linear-gradient(168deg, rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.26) 100%);
@@ -340,11 +490,31 @@
    `display: none` — keeps the rendering state it already has, so bringing it
    back is not a cold start.
  *
- * This is a measured requirement, not tidiness. Left rendered while the receiver
- * plays with the sheet home, the register cost **89.5% of a core against 71.4%**
- * with it gone — an 18-point regression on the number a performance pass had
- * already fought down. Stowed, the same measurement is 71.9%: the difference is
- * inside the noise of having it in the document at all.
+ * This is a measured requirement, not tidiness, and the CONDITION is half the
+ * measurement. Re-measured on this build against a live stream (Deutschlandfunk,
+ * real ICY metadata arriving throughout), renderer process, `/proc` jiffies over
+ * 15 s, two runs each:
+ *
+ *   | receiver | register  | renderer   | viz  |
+ *   |----------|-----------|------------|------|
+ *   | PLAYING  | stowed    | 31.2, 29.2 | 52.5 |
+ *   | PLAYING  | rendered  | 68.1, 69.9 | 52.6 |
+ *   | idle     | stowed    | 3.3        | 0.0  |
+ *   | idle     | rendered  | 3.2        | 0.0  |
+ *
+ * **+38 points of a core, and only while something is playing.** Idle, the two
+ * are indistinguishable — a statically rendered subtree costs nothing, and an
+ * earlier pass that measured only the idle case concluded the stow was
+ * unnecessary. It is not. Playback drives a per-frame MAIN-THREAD update — the
+ * needle off `AnalyserNode` RMS, the marquee, the readouts — and every one of
+ * those frames walks the style and layout tree. `content-visibility: hidden` is
+ * what keeps the register's ~3 300 nodes out of that walk.
+ *
+ * Note what it is NOT: one pulsing lamp costs 97% of a core in the viz process
+ * and the register makes no difference to it (20.9% vs 21.1% renderer), because
+ * a composited opacity animation never touches the document's style tree. Node
+ * count only costs when the main thread runs a lifecycle, and only playback
+ * makes it run one every frame.
  *
  * The attribute is set at the END of the closing travel and cleared at the START
  * of the opening one, so the register is rendered for the whole of every travel
@@ -393,10 +563,85 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--pt) * 0.4);
+  /* Zero, and the rows carry their own spacing below. See the spacer note: the
+     two flexible spacers that place the block are flex ITEMS, and a `gap` would
+     add itself between them and the printing as well. */
+  gap: 0;
   padding: calc(var(--pt) * 0.45) calc(var(--pt) * 0.8);
   pointer-events: none;
   --pt: var(--lid-print-t, 15px);
+}
+
+/* ---------------------------------------------------------------------------
+   WHERE THE PRINTED BLOCK SITS ON A PLATE DEEPER THAN THE BLOCK.
+
+   Centred — until the blank above it would be deeper than the block itself, at
+   which point the top margin stops growing and the rest of the surplus goes
+   below. Two flexible spacers, one of them capped, and the flex algorithm does
+   the rest: free space splits equally between them until the top one hits its
+   `max-height`, freezes, and hands what is left to the bottom one.
+
+   WHY CENTRING IS THE BASE RULE AND WHY IT NEEDED A CAP.
+
+   Centring is what the owner's Windows build does and it is right there.
+   Measured off the reference screenshot: the plate is **158 px** deep, the
+   printed block inside it runs 30 + 39 to 188 − 29, and the type is set at
+   `--pt` 19.5 (the width rule binds at 1586 px of case). Blank above ≈ 39,
+   blank below ≈ 29, block ≈ 90 — symmetric to within the couple of pixels the
+   strip's own box accounts for.
+
+   It is only wrong when the plate is deeper than anything the reference has.
+   `--lid-bay` is `windowHeight − PANEL_H`, so a 1920 × 1200 window gives the
+   plate 530 px against a 106 px block, and centring put 200 px of blank above
+   the legend and 200 below — the "printing marooned in the middle of it" a
+   208 px cap on the PLATE was introduced to avoid ever seeing, at the price of
+   up to 330 px of brushed aluminium under it (see the withdrawn `PLATE_MAX`
+   note in lid.ts).
+
+   WHERE THE CAP COMES FROM. The block's own height, which is ~4.5 × `--pt` at
+   `mid`: the printing may sit as far down its plate as it is tall, and no
+   further. That is not a number picked to look right, it is the only length on
+   the plate that scales with the printing rather than with the window, and it
+   is measured against what it must not disturb:
+
+     | window      | plate | centred top blank | capped at 4.5 × pt |
+     |-------------|-------|-------------------|--------------------|
+     | 1280 × 820  |  175  |  45.5 px          |  70.2 — no effect  |
+     | 1440 × 900  |  255  |  80.0 px          |  79.2 — 0.8 px     |
+     | 1920 × 1080 |  410  | 141   px          | 106                |
+     | 1920 × 1200 |  530  | 201   px          | 106                |
+     | 1280 × 1400 |  755  | 335   px          |  70                |
+
+   So every window anyone runs at 900p or under is untouched — the default is
+   pixel-identical to the build before this change, diffed — and the cap only
+   engages where centring had already stopped being a composition.
+
+   Top-anchoring instead was tried and rejected on the same evidence: it moves
+   the default's legend 12 px up and puts the wordmark hard against the lip,
+   where the reference has a deliberate margin. Screenshotted at 1280×820,
+   1440×900, 1920×1080, 1920×1200, 1280×1400, 900×1400 and 640×900.
+
+   Continuous, so nothing snaps while the window is dragged: below the cap it is
+   centring, above it the top margin simply stops growing.
+   ------------------------------------------------------------------------- */
+.lid__print::before,
+.lid__print::after {
+  content: '';
+  flex: 1 1 0;
+  min-height: 0;
+}
+.lid__print::before {
+  max-height: calc(var(--pt) * 4.5);
+}
+
+/* The spacing the container's `gap` used to carry. On the rows rather than on
+   the container because the spacers above are flex items too. `min` hides the
+   chart with `display: none`, which takes its margin with it, so the head's own
+   margin is what spaces the head from the strip there — exactly what the gap
+   did. */
+.print__head,
+.print__chart {
+  margin-bottom: calc(var(--pt) * 0.4);
 }
 
 .print__head {
@@ -475,18 +720,18 @@
   overflow: hidden;
 }
 
-/* The map field: the GMT map with a boxed timezone strip along its top and
-   bottom edges, which is where the reference puts them. */
+/* ---------------------------------------------------------------------------
+   THE FIELD — one boxed timezone strip, and nothing else in it.
+
+   It used to hold a GMT world map with a strip along each of its edges, and it
+   carried an `aspect-ratio` for the map's sake with a `max-height` beside it.
+   The map is gone at every window size (see `buildPrint` in lid.ts) and so is
+   the second strip, so the field has no shape of its own to keep: it is as tall
+   as the one row of type it prints.
+   ------------------------------------------------------------------------- */
 .print__field {
   position: relative;
-  /* Capped, not stretched. A window three times taller than it is wide hands
-     the plate a box far taller than any case top, and a world map poured into
-     it is not a map, it is a smear. The map keeps a printable aspect and the
-     surplus stays what it is: blank printed metal. */
-  flex: 0 1 auto;
-  aspect-ratio: 2.35;
-  max-height: 100%;
-  margin-block: auto;
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -523,64 +768,209 @@
   background: rgba(63, 211, 208, 0.18);
 }
 
-.print__map {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: block;
-}
-.print__ground {
-  fill: #05090a;
-}
-.print__grid {
-  stroke: var(--lid-grid);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-.print__grid--prime,
-.print__grid--eq {
-  stroke: #1f6a6a;
-  stroke-width: 1.4;
-  stroke-dasharray: 6 5;
-  vector-effect: non-scaling-stroke;
-}
-.print__coast {
-  fill: rgba(31, 106, 106, 0.12);
-  stroke: var(--lid-cyan);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-/* Open rings are coastline fragments, not landmasses — filling them would close
-   the path across open water. */
-.print__coast--open {
-  fill: none;
+/* ---------------------------------------------------------------------------
+   THE LIT CELL — a lamp behind the printing, not a selected button.
+
+   Everything above this rule is screen-printed matter, cyan on black, and it
+   does not move: GMT stays where the case was printed with it. This is the one
+   thing on the plate that is electrical, so it is the one thing that is amber —
+   the colour this receiver uses everywhere for a MEASURED quantity, against the
+   cyan it uses for printed reference.
+
+   WHAT WAS WRONG WITH THE FIRST ONE, MEASURED PER COLUMN ACROSS THE CELL.
+
+   The cell is about 52 × 14 px. The first treatment was a radial gradient at
+   `132% 150%`, so every falloff stop landed outside the box and the whole
+   visible area was core: a near-uniform amber fill with dark ink on it and a
+   hard rectangular edge, which is the grammar of a SELECTED TABLE CELL.
+
+   Traced along the cell, the numbers said so:
+
+   | state      | ground  | numeral   | centre → wall |
+   |------------|---------|-----------|---------------|
+   | `is-lit`   | 176-196 | dark ink  | −7.5%         |
+   | `--half`   | 103-114 | dark ink  | −7.8%         |
+   | `--dim`    | flat 60 | 177-189   | flat          |
+
+   Geometry alone predicts a 16.9% falloff and only 7.5% was measured, because
+   `inset 0 0 4px rgba(255,242,214,0.75)` was lighting the perimeter and
+   cancelling it: the column profile was a **W** — 112 · 103 · … · 114 (centre)
+   · … · 102 · 114 — with the wall as bright as the middle. A rim highlight
+   round a slightly domed face is the signature of a bevelled button, and it is
+   what made the box a chip. Worse, the wall STEP was background 26 → 183 over
+   ~5 px, about 31 luminance units per pixel, against 0.8 per pixel for the
+   interior gradient: the edge was ~39× steeper than the lamp.
+
+   So the rim is gone, and with it the whole idea that the cell is a surface.
+
+   WHAT IT IS NOW. The lamp is the NUMERAL, and the ground is the dark plate it
+   is printed on — which is what `--dim` was already accidentally doing, and the
+   only one of the three states either reader read as a lamp. The bloom is a
+   real ellipse that dies BEFORE the cell wall, so there is no rectangle: at the
+   wall the gradient is at zero alpha and the box has no edge of its own left to
+   draw. The outer glow stays and is driven harder — printing cannot spill past
+   its boundary and light can, so it is the strongest "behind the panel" cue on
+   the plate.
+
+   Exact and approximate stay clearly apart, and not only by brightness: the
+   exact reading has a hot, tight core on the numeral, the approximate one is
+   broader, weaker and has no core — an under-driven bulb behind the same
+   window.
+
+   Placed after `--gmt` on purpose: when GMT itself is the reading, the lamp is
+   what shows, over the printing rather than instead of it.
+   ------------------------------------------------------------------------- */
+.print__tz.is-lit {
+  color: #fff0cf;
+  text-shadow:
+    0 0 3px rgba(255, 208, 122, 0.95),
+    0 0 8px rgba(255, 171, 61, 0.6);
+  background:
+    radial-gradient(
+      46% 128% at 50% 50%,
+      rgba(255, 194, 104, 0.66) 0%,
+      rgba(255, 171, 61, 0.34) 44%,
+      rgba(255, 171, 61, 0.11) 74%,
+      rgba(255, 171, 61, 0) 100%
+    );
+  box-shadow: 0 0 10px 1px rgba(255, 171, 61, 0.6);
 }
 
-/* Shallower plates print less, rather than printing everything illegibly. The
-   map goes first — a world map 18:1 is not a map — then the chart. What is left
-   is centred, because the leftover is blank printed metal, and blank printed
-   metal is a material, not a hole. */
-.lid[data-print='mid'] .print__strip--b,
-.lid[data-print='mid'] .print__map {
+/* A fractional zone — India at +5:30, Iran, Nepal, Chatham — is not AT either
+   printed cell, it is BETWEEN them, and the pair has to say "between" rather
+   than "these two".
+ *
+ * Measured on a real +5:30 station streaming: each cell peaked at its own
+ * centre, so the pair read as two lamps side by side. And what cut them apart
+ * was not brightness — the divider is DARKER than the cells (80 against
+ * 104-116) — it was colour: a saturated cyan rule (41, 96, 84) standing between
+ * two amber grounds, identical to the rule beside an unlit cell.
+ *
+ * So each half is lit brightest at the SHARED edge and falls off away from it,
+ * which makes one lamp centred on the line between them — which is literally
+ * what +5:30 is — and the printed rule across that one boundary goes out for as
+ * long as the pair is lit. Every other rule on the strip is untouched. */
+.print__tz.is-lit--half {
+  color: #ffe6b4;
+  text-shadow: 0 0 4px rgba(255, 190, 90, 0.7);
+  box-shadow: 0 0 8px rgba(255, 171, 61, 0.4);
+}
+.print__tz.is-lit--half-l {
+  background:
+    radial-gradient(
+      62% 128% at 100% 50%,
+      rgba(255, 194, 104, 0.6) 0%,
+      rgba(255, 171, 61, 0.28) 46%,
+      rgba(255, 171, 61, 0) 100%
+    );
+  /* The one printed rule inside the lamp. Transparent rather than removed, so
+     the strip's cells do not shift by a pixel while it is lit — and the
+     gradient is measured over the BORDER box rather than the padding box, or
+     that transparent pixel column shows the black behind it and the rule comes
+     back as a dark line instead of a cyan one. */
+  border-right-color: transparent;
+  background-origin: border-box;
+}
+.print__tz.is-lit--half-r {
+  background:
+    radial-gradient(
+      62% 128% at 0% 50%,
+      rgba(255, 194, 104, 0.6) 0%,
+      rgba(255, 171, 61, 0.28) 46%,
+      rgba(255, 171, 61, 0) 100%
+    );
+}
+
+/* THE READING RAN PAST THE END OF THE PRINTED SCALE.
+ *
+ * The case is screen-printed `-11 … +12` and cannot grow a cell. New Zealand is
+ * +13 for the whole NZDT season, Tonga and Samoa are +13 all year, Chatham is
+ * +12:45. `stripLamp` reports those as `off-strip`, and the plate used to
+ * collapse that into the same darkness as "nothing known" — 240 New Zealand
+ * stations dark from September to April.
+ *
+ * So the end cell lights with the lamp OUTSIDE it: the light comes from beyond
+ * the last printed box and falls off inward, and the glow spills off that side
+ * of the strip. No glyph, no legend, no new printed matter — just a light
+ * source further out than the scale goes, which is exactly the fact. It cannot
+ * be confused with an exact reading, whose light is centred in its own cell. */
+.print__tz.is-lit--over,
+.print__tz.is-lit--under {
+  color: #ffe6b4;
+  text-shadow: 0 0 4px rgba(255, 190, 90, 0.72);
+}
+.print__tz.is-lit--over {
+  background:
+    radial-gradient(
+      58% 128% at 108% 50%,
+      rgba(255, 194, 104, 0.62) 0%,
+      rgba(255, 171, 61, 0.26) 48%,
+      rgba(255, 171, 61, 0) 100%
+    );
+  box-shadow: 7px 0 12px -2px rgba(255, 171, 61, 0.6);
+}
+.print__tz.is-lit--under {
+  background:
+    radial-gradient(
+      58% 128% at -8% 50%,
+      rgba(255, 194, 104, 0.62) 0%,
+      rgba(255, 171, 61, 0.26) 48%,
+      rgba(255, 171, 61, 0) 100%
+    );
+  box-shadow: -7px 0 12px -2px rgba(255, 171, 61, 0.6);
+}
+
+/* The clock was resolved by a meridian rather than measured — a split country,
+   whether or not the position was a fix. The same lamp behind the same window,
+   under-driven: broader, dimmer, and with no hot core on the numeral. */
+.print__tz.is-lit--dim {
+  color: #ffd8a0;
+  text-shadow: 0 0 5px rgba(255, 171, 61, 0.5);
+  background:
+    radial-gradient(
+      54% 128% at 50% 50%,
+      rgba(255, 171, 61, 0.3) 0%,
+      rgba(255, 171, 61, 0.15) 52%,
+      rgba(255, 171, 61, 0) 100%
+    );
+  box-shadow: 0 0 7px rgba(255, 171, 61, 0.3);
+}
+.print__tz.is-lit--half.is-lit--dim {
+  color: #ffd8a0;
+  text-shadow: 0 0 5px rgba(255, 171, 61, 0.45);
+  box-shadow: 0 0 5px rgba(255, 171, 61, 0.24);
+}
+.print__tz.is-lit--half-l.is-lit--dim {
+  background:
+    radial-gradient(
+      62% 128% at 100% 50%,
+      rgba(255, 171, 61, 0.28) 0%,
+      rgba(255, 171, 61, 0.13) 52%,
+      rgba(255, 171, 61, 0) 100%
+    );
+}
+.print__tz.is-lit--half-r.is-lit--dim {
+  background:
+    radial-gradient(
+      62% 128% at 0% 50%,
+      rgba(255, 171, 61, 0.28) 0%,
+      rgba(255, 171, 61, 0.13) 52%,
+      rgba(255, 171, 61, 0) 100%
+    );
+}
+
+/* A shallow plate prints less, rather than printing everything illegibly. The
+   chart is what goes; the strip never does, because it is the one printed thing
+   that also carries a lamp. */
+.lid[data-print='min'] .print__chart {
   display: none;
 }
-.lid[data-print='min'] .print__chart,
-.lid[data-print='min'] .print__map,
-.lid[data-print='min'] .print__strip--b {
-  display: none;
-}
-.lid[data-print='mid'] .print__field,
-.lid[data-print='min'] .print__field {
-  aspect-ratio: auto;
-  flex: 0 0 auto;
-  margin-block: 0;
-}
-.lid[data-print='mid'] .lid__print,
-.lid[data-print='min'] .lid__print {
-  justify-content: center;
-}
+
+/* The rule that placed the printing on the plate — `justify-content: center` at
+   both print levels — has moved up to `.lid__print`, where it is now a pair of
+   spacers that centre until the top margin reaches the reference's and then
+   stop. See the note there; the surplus a deep plate has is what made the
+   difference matter. */
 /* No deck to stand a plate on: no plate, and no leading edge to light either. */
 .lid[data-print='none'] .lid__print,
 .lid[data-print='none'] .lid__rail {
@@ -592,6 +982,25 @@
 
    Everything behind it is inert. It covers the plate exactly, and its only job
    is to draw the sheet out.
+
+   WHY THE CURSOR IS `grab` AND NOT `pointer`.
+
+   Because there is exactly ONE control here and the plate prints THIRTY-SIX
+   boxes on it. The twelve meter bands and the twenty-four timezone cells are
+   bordered, individually labelled and evenly spaced, which is the grammar of a
+   button row; the plate is screen-printed matter and Law 1 forbids giving any
+   of them a job, so the only signal available to say "these are printing" is
+   the cursor. Under `pointer` it said the opposite: measured on the real build,
+   six cells sampled across both rows — `49m`, `11m`, `-11`, `GMT`, `+9`, `+12`
+   — and all six answered `.lid__hit`, the single 1280 × 175 press whose label
+   is "Open the world station register". A user pressing `49m` to change band,
+   or `+9` to see Tokyo, got the register.
+
+   `grab` describes what is actually under the hand: one slab, taken hold of as
+   a whole, which is the same thing the lip's handle says. It is the plate's
+   only honest per-element signal, and it costs no appearance — the hover tint,
+   the focus ring, the press inset and the cue below are byte-identical to what
+   they were, which is what the owner asked for.
    ------------------------------------------------------------------------- */
 
 .lid__hit {
@@ -605,8 +1014,14 @@
   z-index: 30;
   pointer-events: auto;
   background: rgba(0, 0, 0, 0);
-  cursor: pointer;
+  cursor: grab;
   transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+/* Written outside the `:active` block below so that block's declarations stay
+   exactly the bytes they were: the owner asked for the plate's colour and its
+   mouse-over overlay not to change, and a cursor is neither. */
+.lid__hit:active {
+  cursor: grabbing;
 }
 .lid[data-bay='true'] .lid__hit {
   display: block;

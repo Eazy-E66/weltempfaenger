@@ -42,6 +42,7 @@ import { clamp, el, setAttr, setFlag, setText, svg } from '../dom';
 import { airStateOf, type AirState } from '../types';
 import { displayStationName } from '../stationName';
 import { COASTLINES, TIMEZONES, latToY, lonToX } from '../worldGeometry';
+import { localClock, resolveZone } from '../worldTime';
 import {
   NOTCH_DECADE_PCT,
   computeView,
@@ -67,6 +68,17 @@ const LAT_MAX = 78;
 const ROW_H = 17;
 /** Tabs printed per comb. Beyond this the drawer says how much it cut. */
 const COMB_LIMIT = 300;
+const DEG = Math.PI / 180;
+/**
+ * Kilometres to one unit of the map's own grid.
+ *
+ * The projection is equirectangular (`latToY` is linear in latitude), so the
+ * vertical scale is exact everywhere: 156° of latitude over `MAP_H - TZ_H * 2`
+ * units is 111.2 × 156 / 136 ≈ 128 km per unit. The horizontal scale matches it
+ * at the equator and tightens toward the poles exactly as the coastlines under
+ * it do, which is what a reticle drawn on this map should do too.
+ */
+const KM_PER_UNIT = 128;
 
 export interface RegisterHandlers {
   /** The cards pulled changed. The host refetches and hands back rows. */
@@ -106,6 +118,39 @@ export interface RegisterRows {
   key?: string;
   fault?: string;
   warning?: string;
+}
+
+/**
+ * Where a station transmits from, and how well that is known.
+ *
+ * Two rungs, and they are not the same claim, so they do not get the same mark
+ * on the map:
+ *
+ *   · `fix`     — the directory published coordinates for THIS station.
+ *   · `country` — it did not, but other stations with the same country code
+ *                 did, and this is the running mean of theirs. A country, not
+ *                 a transmitter.
+ *
+ * There is no third rung. When neither holds, the answer is `null` and the
+ * surfaces say so — Law 4's designed state, not a marker parked somewhere
+ * plausible.
+ */
+export interface StationOrigin {
+  lat: number;
+  lon: number;
+  from: 'fix' | 'country';
+  /** Carried through so a caller can resolve the clock without the station. */
+  countryCode?: string;
+  /**
+   * The station published a fix, the fix disagreed with its own country, and
+   * the country was believed instead.
+   *
+   * Only ever set together with `from: 'country'` — the position reported IS
+   * the country average, and the discarded fix is named here so the readout can
+   * say that the directory contradicted itself rather than silently swallowing
+   * one of the two. See `FIX_MAX_KM` at `originOf`.
+   */
+  fixRejected?: boolean;
 }
 
 export interface RegisterHandle {
@@ -157,6 +202,19 @@ export interface RegisterHandle {
    * only the fault strip and the ledger's fault mark. `null` clears it.
    */
   setPlayback(state: PlaybackState | null): void;
+  /**
+   * Where this station transmits from, as far as the register knows.
+   *
+   * A **pure read**. It paints nothing, repaints nothing, schedules nothing and
+   * touches no signature — the lid calls it on every engine tick, and the map's
+   * hover calls it on every row a pointer crosses.
+   *
+   * The chain is `station.geo`, then the country centroid the register has
+   * learned from the geography real stations carried, then `null`. There is no
+   * fourth source and there is deliberately no authored atlas of country
+   * coordinates: see the note at `centroids`.
+   */
+  originOf(station: StationRef | undefined): StationOrigin | null;
   focusSearch(field?: RegisterSearchField): void;
   destroy(): void;
 }
@@ -331,9 +389,231 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
    * carry. The directory publishes no coordinates for a country, and a
    * hardcoded atlas is exactly the kind of authored table Law 1 forbids — so
    * the map places an origin only once real stations have told it where that
-   * origin is, and leaves it unplotted until then.
+   * origin is, and leaves it unplotted until then. That prohibition stands:
+   * everything below is still learned from live station geography and nothing
+   * else.
+   *
+   * WHY THE CLOUD IS KEPT INSTEAD OF A RUNNING SUM.
+   *
+   * This was `{ lat, lon, n }` — three numbers per country, incremented as rows
+   * arrived, divided on read. An arithmetic mean of coordinates, and it was
+   * measurably wrong in the one place it is now read aloud:
+   *
+   *   Cold start, the idle pull. Eight Russian stations have loaded. Seven are
+   *   in Moscow (55.7 N, 37.6 E). The eighth — "Radio Anonymous" — publishes
+   *   −48.88, −123.39, which is Point Nemo in the South Pacific. The mean of
+   *   the eight is **42.7 N, 17.5 E: the Adriatic Sea**, 2 000 km outside
+   *   Russia, and that is the number the readout called RUSSIAN FEDERATION ·
+   *   COUNTRY AVERAGE. Filter the comb to Russia, load 200 more rows, and the
+   *   same station's origin moves to a different continent — the answer
+   *   depended on what the user had clicked earlier.
+   *
+   * A mean has a breakdown point of zero: one bad fix in a thousand moves it,
+   * and this feed publishes genuine rubbish (0,0 for Minnesota, Point Nemo for
+   * Moscow). A **median** has a breakdown point of one half — it is unmoved
+   * until half the country's stations are wrong — and it is order-independent,
+   * which is what stops the same station answering two different things
+   * depending on load order. Medians need the samples, not a sum, so the
+   * samples are kept.
+   *
+   * Measured over the whole 62 038-station directory, centroids landing more
+   * than 500 km from EVERY station of their own country: **7 with the mean, 1
+   * with the median.** At the cold-start page: 2 with the mean, 0 that survive
+   * the spread test below.
+   *
+   * Bounded by the directory, not by the session: `learned` holds the ids
+   * already counted, so re-pulling the same rows — which the host does on every
+   * scope change — adds nothing. 13 079 of the 62 038 stations carry any
+   * geography at all, which is the ceiling on this map.
    */
-  const centroids = new Map<string, { lat: number; lon: number; n: number }>();
+  interface Cloud {
+    lat: number[];
+    lon: number[];
+    /** The solved place, recomputed only after new samples land. */
+    seat: Place | null;
+    solved: boolean;
+  }
+  /**
+   * Where a country is, as its own stations report it, and how well they agree.
+   *
+   * `spreadKm` is the median distance from `lat`/`lon` to the stations it was
+   * solved from — a measurement of how much the point is standing in for, and
+   * `null` when a single station is all there is and there is nothing to
+   * measure agreement against.
+   */
+  interface Place {
+    lat: number;
+    lon: number;
+    n: number;
+    spreadKm: number | null;
+  }
+  const centroids = new Map<string, Cloud>();
+  /** Station ids already folded in, so a re-pull cannot count one twice. */
+  const learned = new Set<string>();
+
+  /**
+   * How far the typical station of a country may sit from the point drawn for
+   * it before the point stops being an answer.
+   *
+   * Measured, not chosen. Over the whole directory the median station of the
+   * United States is 1 323 km from the US centroid and Canada's is 1 003 km —
+   * big countries, and the mark says so by growing (see `showOrigin`). Above
+   * 2 000 km there is no country left, only a directory contradicting itself:
+   * `UM` (United States Minor Outlying Islands) spreads 5 949 km across Samoa,
+   * Scotland, San Francisco, Saudi Arabia and Virginia, `BQ` 4 069 km into the
+   * mid-Atlantic, and at cold start `CN` is two stations 7 500 km apart whose
+   * midpoint is western Tibet. Three countries in the whole feed, and every one
+   * of them a place no station transmits from.
+   *
+   * So they are not placed at all, and Law 4 takes it from there: the marker
+   * stays down and the readout says the directory has not said where this is.
+   * That is also the minimum-sample rule, expressed as a measurement rather
+   * than a count — two stations 4 000 km apart are not a sample of a country.
+   */
+  const SPREAD_MAX_KM = 2000;
+
+  /** Median of a list of numbers. Sorts a copy; the caller's order is data. */
+  function median(xs: readonly number[]): number {
+    const s = [...xs].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+  }
+
+  /**
+   * The median longitude, taken the only way a longitude can be.
+   *
+   * Longitude is an angle, and −179 and +179 are two degrees apart, not 358.
+   * Sorting raw degrees would put Chukotka and Kaliningrad at opposite ends of
+   * the list. So the circular mean fixes a reference direction — summed unit
+   * vectors, `atan2`, which is the one longitude average with no seam — every
+   * sample is unwrapped into the half-turn either side of it, and the median is
+   * taken there and wrapped back.
+   */
+  function medianLon(lons: readonly number[]): number {
+    let sx = 0;
+    let sy = 0;
+    for (const lon of lons) {
+      sx += Math.cos(lon * DEG);
+      sy += Math.sin(lon * DEG);
+    }
+    const ref = sx === 0 && sy === 0 ? 0 : Math.atan2(sy, sx) / DEG;
+    const unwrapped = lons.map((lon) => {
+      let d = lon - ref;
+      while (d > 180) d -= 360;
+      while (d < -180) d += 360;
+      return ref + d;
+    });
+    let m = median(unwrapped);
+    while (m > 180) m -= 360;
+    while (m <= -180) m += 360;
+    return m;
+  }
+
+  /**
+   * Where a country is, solved from its cloud. Cached until new samples land.
+   *
+   * Every surface that places a country reads through here — the density dot,
+   * the hover marker, the plate — so there is one answer and it is the same
+   * one, which is the same reason `originOf` exists.
+   */
+  function place(code: string | undefined): Place | null {
+    if (!code) return null;
+    const cloud = centroids.get(code);
+    if (!cloud) return null;
+    if (!cloud.solved) {
+      cloud.seat = solve(cloud);
+      cloud.solved = true;
+    }
+    return cloud.seat;
+  }
+
+  function solve(cloud: Cloud): Place | null {
+    const n = cloud.lat.length;
+    if (n === 0) return null;
+    const lat = median(cloud.lat);
+    const lon = medianLon(cloud.lon);
+    // One station is not an average and has nothing to disagree with. It is
+    // still the best — and only — thing the country has said about itself.
+    if (n < 2) return { lat, lon, n, spreadKm: null };
+    const seat = { lat, lon };
+    const spreadKm = median(cloud.lat.map((la, i) => kmApart(seat, { lat: la, lon: cloud.lon[i]! })));
+    if (spreadKm > SPREAD_MAX_KM) return null;
+    return { lat, lon, n, spreadKm };
+  }
+
+  /**
+   * The fallback chain, and the whole of it. See `RegisterHandle.originOf`.
+   *
+   * Pure: no paint, no repaint, no signature, no timer. Everything that shows
+   * an origin — the hover marker on the map, the lit cell on the plate — reads
+   * through here, so there is exactly one answer to "where is this from?" and
+   * two surfaces cannot disagree about it.
+   */
+  function originOf(station: StationRef | undefined): StationOrigin | null {
+    if (!station) return null;
+    const code = station.countryCode;
+    const seat = place(code);
+    const mean = seat ? { lat: seat.lat, lon: seat.lon } : null;
+    if (station.geo) {
+      // A fix is believed unless the station's OWN country contradicts it. The
+      // feed carries genuine rubbish — a Minnesota station at longitude 0.0, a
+      // California one at 2.1°E, a Wisconsin one at −74.0 — and over a 62 038
+      // station snapshot **89 fixes sit more than 5 000 km from the cloud of
+      // fixes their own country publishes**. Drawing a solid ring and lighting
+      // a cell at full brightness for those states a measurement that two
+      // fields of the same record disagree about.
+      //
+      // The test is against the LEARNED mean, not against an authored atlas:
+      // the evidence is other stations in the same country, which is the same
+      // evidence `centroids` is built from and the same prohibition-free
+      // source. With no mean yet learned there is nothing to contradict the
+      // fix with, so the fix stands.
+      if (!mean || withinKm(station.geo, mean, FIX_MAX_KM)) {
+        return {
+          lat: station.geo.lat,
+          lon: station.geo.lon,
+          from: 'fix',
+          countryCode: code,
+        };
+      }
+      return { ...mean, from: 'country', countryCode: code, fixRejected: true };
+    }
+    if (!code || !mean) return null;
+    return { ...mean, from: 'country', countryCode: code };
+  }
+
+  /**
+   * How far a published fix may sit from its own country's learned mean.
+   *
+   * Deliberately enormous. This is not a border check and must never become
+   * one: Russia is 9 000 km across and the United States reaches from Guam to
+   * Puerto Rico, so a threshold tight enough to catch a state-level error would
+   * throw away thousands of perfectly good fixes. 5 000 km catches "this
+   * European station is at 0,0" and "this American one is in France" and
+   * nothing else, which is exactly the population that was measured wrong.
+   */
+  const FIX_MAX_KM = 5000;
+
+  /** Great-circle distance, in kilometres, without the trigonometry bill. */
+  function kmApart(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+    const R = 6371;
+    const dLat = (b.lat - a.lat) * DEG;
+    // Longitude degrees shrink toward the poles, and the shorter way round the
+    // world is the one that counts — 179°E and 179°W are two degrees apart.
+    let dLon = Math.abs(b.lon - a.lon);
+    if (dLon > 180) dLon = 360 - dLon;
+    const meanLat = ((a.lat + b.lat) / 2) * DEG;
+    const x = dLon * DEG * Math.cos(meanLat);
+    return R * Math.hypot(dLat, x);
+  }
+
+  function withinKm(
+    a: { lat: number; lon: number },
+    b: { lat: number; lon: number },
+    km: number,
+  ): boolean {
+    return kmApart(a, b) <= km;
+  }
 
   /**
    * Change one or more axes of the scope.
@@ -854,8 +1134,56 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     listeners: HTMLElement;
     checked: HTMLElement;
     id: string;
+    /**
+     * The whole row, kept so the hover handlers can ask where it is from.
+     *
+     * `id` alone cannot answer that: `originOf` needs `geo` and `countryCode`,
+     * and a lookup by id would be a scan of the whole population on every row
+     * a pointer crosses. Cleared with `id` when the slot is recycled empty.
+     */
+    station?: StationRef;
   }
   const sheetRows: SheetRow[] = [];
+  /**
+   * The slot the pointer (or the focus ring) is currently over, if any.
+   *
+   * The ledger is VIRTUALISED: a wheel under a stationary pointer changes what
+   * a recycled node is showing without firing `pointerleave` or `pointerenter`,
+   * because the node itself never moved. CSS `:hover` follows the pointer, so
+   * the tinted line said Japan while the map still marked Australia and the
+   * readout still named the Australian station — a measured, easy-to-hit Law 2
+   * defect, since wheeling with the pointer over the list is the ordinary way
+   * to read it.
+   *
+   * Holding the SLOT rather than the station is what makes the repair cheap:
+   * `paintSheet` re-reads `hoverRow.station` once at the end of a repaint, not
+   * once per row, so a repaint costs one extra `showOrigin` however many
+   * hundred lines it rewrote.
+   */
+  let hoverRow: SheetRow | undefined;
+  /**
+   * FIX 9 — WHERE THE POINTER ACTUALLY IS, BECAUSE THE SLOT IS NOT ENOUGH.
+   *
+   * Holding the slot fixed the first half of this: the recycled node keeps its
+   * identity across a scroll, so re-reading `hoverRow.station` at the end of a
+   * repaint at least reports a station the node is *currently* showing. It does
+   * not report the station under the HAND. Measured on the shipping build with
+   * the pointer parked and one wheel notch: `first` jumps by four rows while
+   * the slot's screen position moves by less than one, so the slot the browser
+   * last named is four lines from the one the pointer is over — and Chromium
+   * does not re-run its hover hit test until the scroll settles, which was
+   * **218–317 ms** on this machine. Traced: scroll at t=376902, foot printed
+   * THE BIG 80S STATION at t=376913, corrected to FOX NEWS RADIO at t=377220.
+   * For a third of a second the map marked a country nothing pointed at.
+   *
+   * So the row is COMPUTED from the pointer's own Y whenever there is one. The
+   * ledger is a uniform 17 px rule, which makes that one subtraction and one
+   * divide — no `elementFromPoint`, no rect read, nothing the paint loop pays
+   * for. `sheetClientTop` is read once when the hand arrives at the scroller,
+   * on a layout nothing has dirtied yet, and again whenever the sheet resizes.
+   */
+  let hoverY: number | null = null;
+  let sheetClientTop = 0;
   let sheetTop = 0;
   let sheetView = 320;
   /** Absolute index of the ledger's single tab stop. */
@@ -865,6 +1193,34 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
   sheetBody.addEventListener('scroll', () => {
     sheetTop = sheetBody.scrollTop;
     paintSheet();
+  });
+
+  /**
+   * The pointer's Y, and the scroller's top edge — the two numbers `markedRow`
+   * needs and the only two it reads from outside itself.
+   *
+   * `pointerenter` on the SCROLLER, not on the rows: it fires once when the
+   * hand arrives at the ledger, which is the moment layout is guaranteed clean
+   * (the browser has just hit-tested and this handler has not written anything
+   * yet), so the rect read is free. `pointermove` after that is a single number
+   * assignment — no measurement, no paint, nothing that can be seen.
+   */
+  const pointerY = (ev: Event): number | null => {
+    // jsdom has no `PointerEvent` and the DOM tests dispatch a bare `Event`, so
+    // this is `undefined` there and the slot remains the answer — which is what
+    // those tests pin. It is also `undefined` for a synthetic click.
+    const y = (ev as PointerEvent).clientY;
+    return typeof y === 'number' && Number.isFinite(y) ? y : null;
+  };
+  sheetBody.addEventListener('pointerenter', (ev) => {
+    sheetClientTop = sheetBody.getBoundingClientRect().top;
+    hoverY = pointerY(ev);
+  });
+  sheetBody.addEventListener('pointermove', (ev) => {
+    hoverY = pointerY(ev);
+  });
+  sheetBody.addEventListener('pointerleave', () => {
+    hoverY = null;
   });
 
   /**
@@ -919,9 +1275,30 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
   const sheetRo = new ResizeObserver((entries) => {
     sheetView = entries[0]!.contentRect.height || 320;
     sheetTop = sheetBody.scrollTop;
+    // A resized sheet is the one thing that moves the scroller's top edge
+    // without a pointer crossing into it. `contentRect` is handed over, so this
+    // costs nothing; the offset still has to come from the element.
+    sheetClientTop = sheetBody.getBoundingClientRect().top;
     paintSheet();
   });
   sheetRo.observe(sheetBody);
+
+  /**
+   * The ledger row the hand is on — computed when there is a pointer, and the
+   * recycled slot's own row when there is not (keyboard focus, and jsdom).
+   *
+   * This is the single answer the mark, the words and nothing else read. See
+   * the note at `hoverY`.
+   */
+  function markedRow(): StationRef | undefined {
+    if (!hoverRow) return undefined;
+    if (hoverY === null) return hoverRow.station;
+    const at = Math.floor((hoverY - sheetClientTop + sheetTop) / ROW_H);
+    // Off the end of the ledger is not "the last row I remember": it is no row,
+    // and a mark that stayed up over blank paper would be exactly the lie this
+    // function exists to stop.
+    return at >= 0 && at < view.rows.length ? view.rows[at] : undefined;
+  }
 
   function paintSheet(): void {
     const rows = view.rows;
@@ -1039,6 +1416,40 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
           sheetActive = Math.max(0, Math.floor(sheetTop / ROW_H) - 3) + slot;
           if (entry.id) handlers.onSelect(entry.id);
         });
+        // Once per RECYCLED SLOT, which is a couple of dozen for the session —
+        // never inside the paint loop, which runs for every row on every
+        // keystroke. They read `entry.station` at event time, exactly as the
+        // click above reads `entry.id`, so a recycled node reports the row it
+        // is currently showing rather than the one it was built for.
+        node.addEventListener('pointerenter', (ev) => {
+          hoverRow = entry;
+          // The browser has just told us, authoritatively, which row the hand
+          // is on; take its word rather than re-deriving it from a coordinate
+          // that is exactly on a row boundary at this instant.
+          hoverY = pointerY(ev);
+          // A pointer that was already sitting where a row appeared can reach a
+          // row without the scroller ever seeing a `pointerenter`. Without an
+          // offset the computed index is nonsense, so it is taken here — once,
+          // only in that case, and on a layout this handler has not dirtied.
+          if (hoverY !== null && sheetClientTop === 0) {
+            sheetClientTop = sheetBody.getBoundingClientRect().top;
+          }
+          showOrigin(entry.station);
+        });
+        node.addEventListener('pointerleave', () => {
+          if (hoverRow === entry) hoverRow = undefined;
+          hideOrigin();
+        });
+        // The ledger is a roving-tabindex listbox, so arrowing down it is the
+        // same gesture as running a pointer down it and earns the same map.
+        node.addEventListener('focusin', () => {
+          hoverRow = entry;
+          showOrigin(entry.station);
+        });
+        node.addEventListener('focusout', () => {
+          if (hoverRow === entry) hoverRow = undefined;
+          hideOrigin();
+        });
         sheetRows[k] = row;
         sheetPad.append(node);
       }
@@ -1046,11 +1457,15 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
       if (!station) {
         row.node.style.display = 'none';
         row.id = '';
+        // A recycled empty slot must not report the origin of the row it used
+        // to hold — that is a marker on the map for a line that is not there.
+        row.station = undefined;
         setAttr(row.node, 'tabindex', '-1');
         continue;
       }
       row.node.style.display = '';
       row.id = station.id;
+      row.station = station;
       // Display policy only — `StationRef.name` stays the identity the presets
       // and the directory agree on.
       setText(row.name, displayStationName(station.name, 46));
@@ -1100,6 +1515,12 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
         setAttr(node, 'tabindex', first + k === sheetActive ? '0' : '-1');
       }
     }
+
+    // The line under the pointer is now a different station than it was a
+    // moment ago, and no pointer event said so. See `hoverY`. One call at the
+    // end of the repaint, never one per row; `showOrigin` is a `transform`
+    // attribute and two flags, and it is idempotent when nothing moved.
+    if (hoverRow) showOrigin(markedRow());
   }
 
   /**
@@ -1207,9 +1628,137 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
 
   // -- the origin map ------------------------------------------------------
 
-  const mapRead = el('span', { class: 'mapbox__read silk silk--xs' }, ['—']);
+  /**
+   * THE FOOT OF THE MAP, WRITTEN IN FOUR SEGMENTS SO THE CLOCK CANNOT FALL OFF.
+   *
+   * It was one text node with `white-space: nowrap; text-overflow: ellipsis` in
+   * a box that is **300 px at every window size** — `.reg-right` is a fixed
+   * grid track, so widening the chassis to 1920 does not give this line one
+   * extra pixel. Measured over 14 ledger rows, SEVEN overflowed: NPR 24 Hour
+   * Program Stream 421 px, Z100 403, Radio Anonymous 391, BBC World Service
+   * 381, 101 Smooth Jazz 361, KIIS FM 342, Radio Paradise 309. CNN alone
+   * measures 302.8 in 300.
+   *
+   * One text node can only elide at its END, and the end of this line is the
+   * local clock — the one field the listener is choosing by. Observed on the
+   * shipping build: `≈18:10 LOC…`, and `UNITED KINGDOM OF GREAT B… · COUNTRY
+   * AV…` with the clock gone entirely.
+   *
+   * So the line is four flex items with explicit shrink weights, and the clock
+   * is the one that cannot shrink. The country name gives way first (it is the
+   * longest field and still identifies when clipped), then the qualifier, then
+   * the station name — which the listener can also read on the tinted row their
+   * pointer is sitting on. `textContent` is byte-identical to the single-node
+   * version, separators included, because the separator travels with the field
+   * it introduces and disappears with it.
+   */
+  const readName = el('span', { class: 'mapread mapread--name' });
+  const readWhere = el('span', { class: 'mapread mapread--where' });
+  const readQual = el('span', { class: 'mapread mapread--qual' });
+  const readClock = el('span', { class: 'mapread mapread--clock' });
+  const mapRead = el('span', { class: 'mapbox__read silk silk--xs' }, [
+    readName,
+    // The three facts are one row of their own rather than three items wrapping
+    // inside the caption: FIX DISOWNED BY ITS COUNTRY is long enough to push
+    // the clock onto a third line, and a caption that changes height under a
+    // moving pointer shifts everything below it. Two lines, always.
+    el('span', { class: 'mapread-facts' }, [readWhere, readQual, readClock]),
+  ]);
+
+  /**
+   * Write the foot. Every field carries its own separator, so an empty field
+   * takes its ` · ` with it and no line ever prints a dangling divider.
+   */
+  function writeRead(name: string, where = '', qual = '', clock = ''): void {
+    setText(readName, name);
+    // The subject takes the first line to itself and the facts take the second,
+    // so the break IS the separator and `where` carries only a hanging space.
+    // The other two keep their ` · ` because they share a line with what is in
+    // front of them — an empty field takes its divider with it and no line ever
+    // prints a dangling separator.
+    setText(readWhere, where ? ` ${where}` : '');
+    setText(readQual, qual ? ` · ${qual}` : '');
+    setText(readClock, clock ? ` · ${clock}` : '');
+  }
   const denLayer = svg('g', { class: 'map__density' }) as SVGGElement;
   const retLayer = svg('g', { class: 'map__reticle' }) as SVGGElement;
+
+  /**
+   * Where the row under the pointer transmits from.
+   *
+   * A THIRD PERSISTENT LAYER, and it has to be: `paintMap()` empties `retLayer`
+   * on every signature change, so a marker parked in there would vanish the
+   * moment a card was pulled underneath the hand holding it.
+   *
+   * `aria-hidden`, no `role`, no `tabindex`. The map svg is `role="listbox"`
+   * and its options are the density dots — a marker that took a tab stop would
+   * be a two-hundred-and-first option that selects nothing. The reading is
+   * published in words on `mapRead`, which is where words on this surface live.
+   *
+   * Drawn at the origin and moved by ONE `transform` on the group, so a hover
+   * is a single attribute write rather than five coordinate writes.
+   */
+  /**
+   * The reticle's rest radius, and the widest it is allowed to open.
+   *
+   * 4.4 map units is 560 km on this projection, which is why the mark has
+   * always read as "about here" rather than "at this point". A country whose
+   * stations agree more closely than that gets exactly the mark it got before;
+   * one whose stations are spread wider gets a ring the size of the spread,
+   * because a 4.4 ring over the United States — median station 1 323 km from
+   * the centroid — claims a precision the directory never published. 16 units
+   * is 2 048 km, which is where `SPREAD_MAX_KM` stops placing the country at
+   * all, so the ring can never grow past the last honest reading.
+   */
+  const RING_R = 4.4;
+  const RING_R_MAX = 16;
+  /** Four ticks standing off the ring, at the same offsets whatever it measures. */
+  function crossD(r: number): string {
+    const a = +(r + 1.6).toFixed(2);
+    const b = +(r + 4).toFixed(2);
+    return `M-${b} 0 H-${a} M${a} 0 H${b} M0 -${b} V-${a} M0 ${a} V${b}`;
+  }
+  const CROSS_D = crossD(RING_R);
+  /**
+   * THE KNOCKOUT, WHICH IS WHY THE RING AND THE CROSS ARE DRAWN TWICE.
+   *
+   * Over the Atlantic the mark is obvious. Over Europe it could not be found at
+   * 12× magnification, and brightness is not the reason: measured, the ring's
+   * stroke peaks at 200-221 against a density-dot fill of 96 and a coastline of
+   * ~155, so it is already the brightest thing there. What it has no margin in
+   * is LOCAL CONTRAST — ring mean 168 against a surround mean of 127 is 1.33×,
+   * and the surround's brightest pixels reach 209, which is the ring's own
+   * maximum. In the sparse United States the same measurement is 2.02×.
+   *
+   * There is no luminance left to spend, so thickening or brightening the
+   * stroke cannot work: the dots are the same brightness as the mark. What
+   * separates a symbol from a busy ground when brightness cannot is the
+   * cartographer's knockout — a dark halo drawn UNDER the bright line, which
+   * takes the ground away rather than trying to out-shine it.
+   */
+  const ringKnock = svg('circle', { class: 'map__origin-knock', cx: '0', cy: '0', r: '4.4' });
+  const crossKnock = svg('path', { class: 'map__origin-knock', d: CROSS_D });
+  const ring = svg('circle', { class: 'map__origin-ring', cx: '0', cy: '0', r: '4.4' });
+  const cross = svg('path', { class: 'map__origin-cross', d: CROSS_D });
+  const hovMark = svg('g', { class: 'map__origin', 'aria-hidden': 'true' }, [
+    ringKnock,
+    crossKnock,
+    ring,
+    svg('circle', { class: 'map__origin-pip', cx: '0', cy: '0', r: '1.15' }),
+    cross,
+  ]) as SVGGElement;
+  /** What the reticle is currently drawn at, so an unchanged hover writes nothing. */
+  let ringR = RING_R;
+  function setRingR(r: number): void {
+    if (r === ringR) return;
+    ringR = r;
+    const rs = r.toFixed(2);
+    const d = crossD(r);
+    setAttr(ringKnock, 'r', rs);
+    setAttr(ring, 'r', rs);
+    setAttr(crossKnock, 'd', d);
+    setAttr(cross, 'd', d);
+  }
 
   function mapX(lon: number): number {
     return lonToX(lon) * MAP_W;
@@ -1271,7 +1820,8 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
         }
       }
     }
-    kids.push(denLayer, retLayer);
+    // Last, so the hover mark draws over the dots rather than under them.
+    kids.push(denLayer, retLayer, hovMark);
     return svg('svg', {
       class: 'mapbox__svg',
       viewBox: `0 0 ${MAP_W} ${MAP_H}`,
@@ -1302,15 +1852,25 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     return index?.origins.find((o) => o.code === code)?.name ?? code;
   }
 
+  /**
+   * Fold today's rows into what each country has said about where it is.
+   *
+   * `learned` is what keeps this bounded. The host re-pulls on every scope
+   * change, so the same station arrives here dozens of times in a session; a
+   * list that took each arrival would grow without limit and — worse — would
+   * weight a country by how often the user happened to look at it, which is
+   * the order-dependence the median is here to remove.
+   */
   function learnGeography(rows: readonly StationRef[]): void {
     for (const station of rows) {
       const code = station.countryCode;
-      if (!code || !station.geo) continue;
-      const acc = centroids.get(code) ?? { lat: 0, lon: 0, n: 0 };
-      acc.lat += station.geo.lat;
-      acc.lon += station.geo.lon;
-      acc.n++;
-      centroids.set(code, acc);
+      if (!code || !station.geo || learned.has(station.id)) continue;
+      learned.add(station.id);
+      const cloud = centroids.get(code) ?? { lat: [], lon: [], seat: null, solved: false };
+      cloud.lat.push(station.geo.lat);
+      cloud.lon.push(station.geo.lon);
+      cloud.solved = false;
+      centroids.set(code, cloud);
     }
   }
 
@@ -1320,9 +1880,9 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
    * these, so a refined centroid moves the dot on the very next paint.
    */
   function dotAt(code: string): string {
-    const acc = centroids.get(code);
-    if (!acc) return '';
-    return `@${mapX(acc.lon / acc.n).toFixed(1)},${mapY(acc.lat / acc.n).toFixed(1)}`;
+    const seat = place(code);
+    if (!seat) return '';
+    return `@${mapX(seat.lon).toFixed(1)},${mapY(seat.lat).toFixed(1)}`;
   }
 
   /** Dots, west to east — the order the map's own single tab stop walks them. */
@@ -1358,13 +1918,13 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     mapDots = [];
     const tabs = view.origins;
     const plotted = tabs
-      .filter((t) => (t.unknown || t.count > 0) && centroids.has(t.key))
+      .filter((t) => (t.unknown || t.count > 0) && place(t.key) !== null)
       .sort((a, b) => b.count - a.count);
 
     for (const tab of plotted) {
-      const acc = centroids.get(tab.key)!;
-      const x = mapX(acc.lon / acc.n);
-      const y = mapY(acc.lat / acc.n);
+      const seat = place(tab.key)!;
+      const x = mapX(seat.lon);
+      const y = mapY(seat.lat);
       // FIX 3 again, on the other index that had the same defect: the radius
       // was normalised against the largest count in view, so France was the
       // same dot in a world map and in a two-country scope. Now it rides the
@@ -1383,16 +1943,27 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
       const pick = (): void => emit({ origin: scope.origin === tab.key ? undefined : tab.key });
       dot.addEventListener('click', pick);
       dot.addEventListener('pointerenter', () => {
-        const off = Math.round(acc.lon / acc.n / 15);
-        const now = new Date(Date.now() + off * 3600e3);
-        setText(
-          mapRead,
-          tab.unknown
-            ? `${tab.label.toUpperCase()} · ${UNKNOWN}`
-            : `${tab.label.toUpperCase()} · ${grp(tab.count)} STN · ${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')} LOC`,
+        // This used to be `Math.round(acc.lon / acc.n / 15)`, which reads Spain
+        // as GMT, cannot express India's half hour and knows nothing of
+        // daylight saving. It is the same clock the plate now lights a cell
+        // for, so it is the same call — a wrong one beside a right one is
+        // worse than either.
+        // The dot IS the whole country, so its clock is the country's own —
+        // resolved without a position, which is exact for a single-zone country
+        // and marked approximate for a split one.
+        const res = resolveZone(tab.key);
+        const clock = res ? localClock(res.zone, new Date()) : null;
+        const approx = !!res?.approximate;
+        writeRead(
+          tab.label.toUpperCase(),
+          '',
+          tab.unknown ? UNKNOWN : `${grp(tab.count)} STN`,
+          !tab.unknown && clock ? `${approx ? '≈' : ''}${clock} LOCAL` : '',
         );
       });
-      dot.addEventListener('pointerleave', () => paintMapRead());
+      // A dot is not a ledger row, so nothing is marked when the hand leaves
+      // it: the standing line, directly, never the hover-aware wrapper.
+      dot.addEventListener('pointerleave', () => paintStandingRead());
       denLayer.append(dot);
       mapDots.push({ node: dot, key: tab.key, pick });
       if (scope.origin === tab.key) {
@@ -1420,21 +1991,176 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     }
   }
 
-  function paintMapRead(): void {
+  /** What the foot says when nothing at all is being pointed at. */
+  function paintStandingRead(): void {
     if (printing) {
-      setText(mapRead, scope.origin ? originName(scope.origin).toUpperCase() : 'PRINTING…');
+      writeRead(scope.origin ? originName(scope.origin).toUpperCase() : 'PRINTING…');
       return;
     }
     if (scope.origin) {
-      setText(mapRead, originName(scope.origin).toUpperCase());
+      writeRead(originName(scope.origin).toUpperCase());
       return;
     }
-    const known = view.origins.filter((t) => t.count > 0 && centroids.has(t.key)).length;
+    const known = view.origins.filter((t) => t.count > 0 && place(t.key) !== null).length;
     const total = view.origins.filter((t) => t.count > 0).length;
-    setText(
-      mapRead,
+    writeRead(
       total === 0 ? UNKNOWN : known < total ? `${known} OF ${total} ORIGINS PLACED` : `${total} ORIGINS`,
     );
+  }
+
+  /**
+   * FIX 10 — THE MARK AND THE WORDS RETIRE TOGETHER, BECAUSE ONE FUNCTION
+   * DECIDES BOTH.
+   *
+   * `paintMap()` ended — in BOTH branches, the redraw and the skip — with a
+   * call to the standing readout, and `paintNow()` runs `paintSheet()` before
+   * `paintMap()`. So every repaint that happened while a row was marked did
+   * this, in order: the sheet's tail raised the mark and wrote the origin line,
+   * and then the map's tail overwrote the line with `71 OF 241 ORIGINS PLACED`
+   * and left the mark standing. Reproduced by changing the sort order under a
+   * held pointer: `.map__origin` keeping `is-up` at opacity 1 over a country
+   * while the words underneath had already reset. A reticle with no caption is
+   * an assertion with nothing behind it.
+   *
+   * The repair is structural rather than another ordering rule: there is now
+   * exactly one entry point that knows what the foot says, and it asks whether
+   * anything is marked before it says anything else. `hideOrigin` calls
+   * `paintStandingRead` directly, so nothing can recurse.
+   */
+  function paintMapRead(): void {
+    const marked = markedRow();
+    if (marked) {
+      showOrigin(marked);
+      return;
+    }
+    paintStandingRead();
+  }
+
+  /**
+   * The row under the pointer, marked on the map and said in words.
+   *
+   * The whole of the write is one `transform` attribute and two class flags on
+   * a group that already exists, plus the readout. No `paintMap`, no
+   * `paintSheet`, no `requestAnimationFrame`, and nothing `mapSig` reads — a
+   * pointer running down two hundred rows may not rebuild two hundred circles
+   * two hundred times.
+   *
+   * The words are the honest half. A dashed ring says "somewhere in this
+   * country" on its own, but only the readout can say WHICH country, that the
+   * position is an average of the ones the directory did publish, and — for a
+   * country a single clock misdescribes — that the time is approximate.
+   */
+  function showOrigin(station: StationRef | undefined): void {
+    if (!station) {
+      hideOrigin();
+      return;
+    }
+    const name = displayStationName(station.name, 28).toUpperCase();
+    const origin = originOf(station);
+    if (!origin) {
+      // Law 4: printed, not blank. The mark comes down and the line says why.
+      setFlag(hovMark, 'is-up', false);
+      setFlag(mapSvg, 'is-marking', false);
+      writeRead(name, 'NO ORIGIN IN THE DIRECTORY');
+      return;
+    }
+    setAttr(
+      hovMark,
+      'transform',
+      `translate(${mapX(origin.lon).toFixed(1)} ${mapY(origin.lat).toFixed(1)})`,
+    );
+    // THE RING IS THE MEASUREMENT, NOT A SYMBOL.
+    //
+    // A published fix is a point and gets the rest ring. A country average is a
+    // point standing in for a cloud, and how big that cloud is was measured
+    // when it was solved — so the ring is drawn at that size. Over France it is
+    // the same 4.4 it has always been (median station 229 km, under the floor);
+    // over the United States it opens to 10.3 units, which is 1 320 km, which
+    // is where the stations actually are.
+    const spread = origin.from === 'country' ? place(origin.countryCode)?.spreadKm ?? null : null;
+    setRingR(spread === null ? RING_R : clamp(spread / KM_PER_UNIT, RING_R, RING_R_MAX));
+    setFlag(hovMark, 'is-up', true);
+    setFlag(hovMark, 'is-approx', origin.from === 'country');
+    // One class on the svg, and the printed index steps back while a hand is
+    // pointing at one line of it. The dots themselves are untouched — this is
+    // the same ink at lower key, not a repaint — and it is what buys the mark
+    // its contrast over Europe, where there was none left in luminance.
+    setFlag(mapSvg, 'is-marking', true);
+    originLine(name, origin);
+  }
+
+  /** What the marker's own words are, given a placed origin. */
+  function originLine(name: string, origin: StationOrigin): void {
+    const code = origin.countryCode;
+    const where = code
+      ? originName(code).toUpperCase()
+      : origin.from === 'fix' ? 'ORIGIN PLACED' : '';
+    // `FIX DISOWNED BY ITS COUNTRY` measured 143 px, which put the second line
+    // 4 px over its 300 behind RUSSIAN FEDERATION and cost the phrase its last
+    // character. Two words shorter says the same thing and leaves 20 px of
+    // headroom for the next long country name.
+    const qual = origin.fixRejected
+      ? 'FIX DISOWNED BY COUNTRY'
+      : origin.from === 'country' ? 'COUNTRY AVERAGE' : '';
+    /* THE SPREAD IS SAID BY THE RING AND NOT BY THIS LINE, AND THAT IS MEASURED.
+     *
+     * `±1 047 KM` after COUNTRY AVERAGE is the honest figure and it was written
+     * here first. Measured against the readout's own 300 px:
+     * `CNN · UNITED STATES OF AMERICA · COUNTRY AVERAGE · ≈16:31 LOCAL` is
+     * already **302.8 px** without it, and the term takes it to 348. So the
+     * measurement goes where there is room for it: `showOrigin` draws the
+     * reticle at the size of the spread, on the map, to the map's own scale.
+     * Same number, same source, no words displaced.
+     *
+     * WHAT THAT DID NOT FIX, AND THIS COMMENT USED TO CLAIM IT DID: the base
+     * line overflows 300 px on its own. Re-measured over 14 rows of the live
+     * directory at a 1920-wide window — where the box is still 300 px, because
+     * `.reg-right` is a fixed grid track — SEVEN of the fourteen were over:
+     * NPR 24 Hour Program Stream 421 px, Z100 403, Radio Anonymous 391,
+     * BBC World Service 381, 101 Smooth Jazz 361, KIIS FM 342,
+     * Radio Paradise 309. Moving the spread onto the ring bought back 45 px of
+     * a 121 px overrun. The line is now four flex items and the clock is the
+     * one that does not shrink — see `writeRead`. */
+    // Only a fix the register believes is allowed to pick the band inside a
+    // split country. A country average carries no longitude of its own worth
+    // resolving against — its "longitude" is the median of the whole cloud —
+    // and a disowned fix is exactly the number that must not be used.
+    const fix = origin.from === 'fix' ? origin : null;
+    const res = resolveZone(code, fix?.lon, fix?.lat);
+    const clock = res ? localClock(res.zone, new Date()) : null;
+    if (!clock) {
+      // A position without a clock is a real state and it says so, rather than
+      // printing the nearest hour and hoping.
+      writeRead(name, where, qual, 'CLOCK NOT KNOWN');
+    } else {
+      /* `≈` is a property of the CLOCK, not of the dot.
+       *
+       * It used to key off `from === 'country'`, i.e. off how the position was
+       * arrived at — which marked the country-average case honestly and let the
+       * far larger one through: a Phoenix station with a real fix printed
+       * `09:13 LOCAL` undimmed and unmarked when Phoenix reads 08:13, because
+       * inside a split country the zone is a MERIDIAN GUESS however exact the
+       * coordinates are. Measured over the directory: **6 008 of 62 038
+       * stations have a fix inside a split country** and were getting the exact
+       * presentation. `resolveZone` reports its own exactness, and this reads
+       * that rather than second-guessing it. */
+      writeRead(name, where, qual, `${res!.approximate ? '≈' : ''}${clock} LOCAL`);
+    }
+  }
+
+  /**
+   * The pointer left. The mark comes down and the standing readout comes back.
+   *
+   * `paintStandingRead()` rather than a remembered string — exactly the pattern
+   * the density dots have used since they were built. It is the one function
+   * that knows what the line says when nothing is being pointed at, and there
+   * is no second copy of that to fall out of step. Never `paintMapRead()`:
+   * that one asks what is marked, and this is the function that unmarks it.
+   */
+  function hideOrigin(): void {
+    setFlag(hovMark, 'is-up', false);
+    setFlag(mapSvg, 'is-marking', false);
+    paintStandingRead();
   }
 
   // SPIN: the serendipity paddle. A spring-return throw that sends the origin
@@ -1690,16 +2416,60 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
    * one focusable, named control, so assistive technology still sees a single
    * button rather than a button inside a button.
    */
-  const cutSub = el('div', { class: 'cut__sub silk silk--xs' }, ['']);
+  /**
+   * FIX 8 — THE THROW IS A CONTROL, AND IT IS NOT UNDER THE KEY THAT OPENS IT.
+   *
+   * Two defects, both measured on the shipping 1280×820 and both about the same
+   * 79 × 24 px of glass.
+   *
+   *  · GEOMETRY. The faceplate's STATIONS key — the one control that opens this
+   *    drawer — occupies x 960.6–1048, y 764–788. `.cut` occupied
+   *    x 969–1245, y 739.6–788. The intersection is 79 × 24 px, which is **90%
+   *    of the STATIONS key**. A listener who pressed STATIONS, saw nothing for
+   *    a beat and pressed again — the ordinary human response to a control that
+   *    has not answered yet — had the register arrive between the two presses
+   *    and put the second one on CUT BAND: the lid shut, the dial was replaced,
+   *    and whatever was on air was replaced with the head of the new cut. There
+   *    is no undo for that. The throw is now in the right-hand column, directly
+   *    above the twelve meter bands it fills; measured after the move it sits at
+   *    y 606–655, which is 109 px clear of the STATIONS key at every window
+   *    width the chassis allows. Nothing about the faceplate was touched.
+   *  · SEMANTICS. The listener is on `.cut` — a bare `<div>` with no `role`, no
+   *    `tabindex` and no name — while the `role="button"` sat on `.cut__throw`,
+   *    the 66 px paddle inside it. So the element that actually took the click
+   *    was, to assistive technology, a piece of decoration; the most destructive
+   *    action in the product announced itself as nothing at all. The role, the
+   *    name, the tab stop and `aria-disabled` are now on the element that has
+   *    the listener, and the paddle is what it looks like — the mechanism, not
+   *    the control. Still exactly ONE button here, not a button inside a button.
+   */
+  const cutSubId = nextId('cut-sub');
+  const cutSub = el('div', { class: 'cut__sub silk silk--xs', id: cutSubId }, ['']);
   const cutPaddle = el('div', { class: 'cut__paddle' });
-  const cutThrow = el('div', {
-    class: 'cut__throw', role: 'button', tabindex: '0',
-    'aria-label': 'Cut this scope onto the MW/SW dial',
-  }, [cutPaddle, el('span', { class: 'cut__arrow' }, ['▶'])]);
-  const cut = el('div', { class: 'cut' }, [
+  const cutThrow = el('div', { class: 'cut__throw', 'aria-hidden': 'true' }, [
+    cutPaddle,
+    el('span', { class: 'cut__arrow' }, ['▶']),
+  ]);
+  const cut = el('div', {
+    class: 'cut', role: 'button', tabindex: '0',
+    'aria-label': 'Cut this scope onto the MW/SW dial. Replaces what is on the dial now',
+    // The promise line is the description, so a screen reader hears the same
+    // numbers the eye reads before the throw rather than after it.
+    'aria-describedby': cutSubId,
+  }, [
     el('div', { class: 'cut__plate' }, [
       el('div', { class: 'cut__legend' }, ['Cut Band']),
       cutSub,
+      /* THE CONSEQUENCE, PRINTED ON THE CONTROL THAT CAUSES IT.
+       *
+       * The promise line above says what the throw WILL fill. It never said
+       * what it destroys — and what it destroys is the dial the listener is
+       * currently listening on, with no undo anywhere in the product. A user
+       * who lost the BBC World Service to a stray second click had to find the
+       * LOG strip on the faceplate to get back. This is a standing fact about
+       * the control, so it is printed as standing matter rather than folded
+       * into the caption: it never changes, so the plate never reflows. */
+      el('div', { class: 'cut__warn silk silk--xs' }, ['Replaces what is on the dial now']),
     ]),
     cutThrow,
   ]);
@@ -1713,8 +2483,12 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     const taken = Math.min(n, DRUM_CAPACITY);
     const bands = Math.max(1, Math.ceil(taken / PER_BAND));
     setFlag(cut, 'is-dead', n === 0);
-    setAttr(cutThrow, 'aria-disabled', String(n === 0));
-    setAttr(cutThrow, 'tabindex', n === 0 ? '-1' : '0');
+    // On the element that carries the listener and the role — see FIX 8. It
+    // used to be written to `.cut__throw`, which is now the paddle and nothing
+    // else, so a screen reader was told the decoration was disabled while the
+    // live target went on announcing nothing.
+    setAttr(cut, 'aria-disabled', String(n === 0));
+    setAttr(cut, 'tabindex', n === 0 ? '-1' : '0');
     // Going inert under the hand takes the paddle with it: `pointer-events:
     // none` means no `pointerup` will ever arrive to end a drag in flight.
     if (n === 0) dragEnd(false);
@@ -1799,7 +2573,10 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     }
     throwIt();
   });
-  cutThrow.addEventListener('keydown', (ev) => {
+  // On `.cut`, because `.cut` is now the button: the tab stop, the name and the
+  // keyboard activation have to be the same element or a keyboard user reaches
+  // one thing and operates another.
+  cut.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' || ev.key === ' ') {
       ev.preventDefault();
       throwIt();
@@ -1910,6 +2687,12 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
           ' stores a preset',
         ]),
       ]),
+      // FIX 8: the throw, and directly under it the twelve meter bands it
+      // fills. It used to live at the right-hand end of the bottom rail, which
+      // is 90% on top of the faceplate key that opens this drawer — see the
+      // note at `cutSub`. Here it is 109 px clear of that key, and it is beside
+      // the picture of what it does, which is where it always wanted to be.
+      cut,
       bandPreview,
     ]),
   ]);
@@ -1933,7 +2716,6 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
         qualityBank.root, codecBank.root, verifiedLever.root, hlsLever.root,
       ]),
       pulledRail,
-      cut,
     ]),
   ]);
 
@@ -2132,6 +2914,7 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
       paintFault();
       paintSheet();
     },
+    originOf,
     focusSearch(field: RegisterSearchField = 'subject') {
       if (field === 'name') {
         // Ctrl+K means "find this station". Selected, not just focused, so a
