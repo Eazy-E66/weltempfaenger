@@ -1205,6 +1205,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
               caption: cut.caption,
               quality: cut.quality,
               total: cut.total,
+              printed: cut.printed,
               filled: cut.bands.length,
               index: cutBandIndex,
             }

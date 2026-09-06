@@ -1208,9 +1208,21 @@ export class ReceiverHost implements FaceplateHost {
     // "is on" whichever station the layout happened to place near the middle —
     // which would silently outrank the station the listener was actually last
     // hearing. An untouched pointer is not a choice.
+    //
+    // `lastStation` is what was last *asked for*; the log is what was last
+    // *heard* (Law 2 applied to memory). A station that was asked for and never
+    // came up must not be the one the receiver switches on to after a relaunch:
+    // measured on the live directory, two FIP mounts refused this receiver,
+    // the app was quit on the second, and every RADIO ON afterwards went
+    // straight back to STATION FAILED. So the last intent is honoured only if
+    // it was heard; otherwise the last station that actually played is next.
+    const heard = (station: StationRef | undefined): StationRef | undefined =>
+      station && this.log.some((entry) => entry.station.id === station.id) ? station : undefined;
     const station =
       (this.dialTouched ? slotAt(this.band, this.dialPosition)?.station : undefined) ??
       engine.currentState.station ??
+      heard(this.memory.lastStation) ??
+      this.log[0]?.station ??
       this.memory.lastStation ??
       (this.dialTouched ? nearestSlot(this.band, this.dialPosition)?.station : undefined) ??
       this.band.slots[0]?.station;

@@ -63,7 +63,9 @@ export interface MeterBandHandle {
    * What the register cut. `filled` is how many meter bands actually carry
    * entries; `index` is the one currently printed on the drum.
    */
-  setCut(cut: { caption: string; quality: string; total: number; filled: number; index: number } | null): void;
+  setCut(
+    cut: { caption: string; quality: string; total: number; printed: number; filled: number; index: number } | null,
+  ): void;
   /** Tell the plate what the rest of the panel is doing, so its hint is true. */
   setContext(context: BandContext): void;
   /** Fire the plate's lamp-strike: a new band has just been cut. */
@@ -325,7 +327,10 @@ export function createMeterBand(onSelect: (index: number) => void): MeterBandHan
       }
       cutCaption = cut ? cut.caption : null;
       setText(plateScope, cut ? cut.caption : 'NO BAND CUT');
-      setText(plateCount, cut ? `${cut.total} STN` : '');
+      // The drum holds 480; a wider scope was cut to its top 480 and the register
+      // said so before the throw. The plate must not then print the scope's
+      // size as though all of it were on the dial.
+      setText(plateCount, cut ? (cut.printed < cut.total ? `${cut.printed} OF ${cut.total} STN` : `${cut.total} STN`) : '');
       setText(plateQual, cut ? cut.quality : '');
       setText(plateBand, cut && filled ? (METER_BANDS[position]?.label.replace(/\s/g, '') ?? '—') : '—');
       setFlag(plateWindow, 'is-uncut', !cut);

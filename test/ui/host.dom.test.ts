@@ -47,6 +47,7 @@ import type { BrowseResults, FaceplateHandle, PanelNotice } from '../../src/rend
 import { createReadout } from '../../src/renderer/ui/components/readout';
 import { FakeAudioElement, installWebAudio } from '../helpers/fakeDeck';
 import type { ProxyEvent, ProxyMetadata, ProxySessionStats } from '../../src/main/proxy/types';
+import type { StationMemory } from '../../src/main/ipc';
 
 // ---------------------------------------------------------------------------
 // The world outside the renderer
@@ -91,6 +92,7 @@ class FakeBridge {
   resolveFailure: ResolveFailure | null = null;
   /** Settings on disk. A relaunch is `mount()` with these already written. */
   onDisk: Settings = { ...DEFAULT_SETTINGS, scope: emptyScope() };
+  memoryOnDisk: StationMemory = { presets: [] as Preset[] };
   /** The directory is unreachable — a fault, not an empty answer. */
   searchFails = false;
   /** Upstream URLs the engine actually asked the proxy to open, in order. */
@@ -164,7 +166,7 @@ class FakeBridge {
           this.onDisk = value;
         },
       },
-      memory: { load: async () => ({ presets: [] as Preset[] }), save: noop },
+      memory: { load: async () => this.memoryOnDisk, save: noop },
       directory: {
         listIndex: async () =>
           this.index ? { ok: true, value: this.index } : { ok: false, failure: { kind: 'network', message: 'no' } },
@@ -1827,5 +1829,74 @@ describe('a directory fault the listener does not touch', () => {
     window.dispatchEvent(new Event('online'));
     await vi.advanceTimersByTimeAsync(300);
     expect(r.bridge.queries).toHaveLength(before);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// What RADIO ON switches on to after a relaunch
+// ---------------------------------------------------------------------------
+
+describe('RADIO ON after a relaunch', () => {
+  const band = rows('hot', 6);
+  const asked = station({ id: 'asked', name: 'Asked For', url: 'http://mount/asked' });
+  const heard = station({ id: 'heard', name: 'Heard', url: 'http://mount/heard' });
+
+  it('goes to the last station that was actually heard, not to one that was asked for and never came up', async () => {
+    // Measured on the live directory: two mounts refused the receiver, the app
+    // was quit on the second, and every RADIO ON afterwards went straight back
+    // to STATION FAILED — because `lastStation` is intent, and the log is fact.
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = { presets: [], lastStation: asked, log: [{ station: heard, heardAt: 1 }] };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('heard');
+  });
+
+  it('still honours the last intent when it was heard', async () => {
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = {
+          presets: [],
+          lastStation: asked,
+          log: [
+            { station: heard, heardAt: 2 },
+            { station: asked, heardAt: 1 },
+          ],
+        };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('asked');
+  });
+
+  it('falls back to the last intent when nothing was ever heard', async () => {
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = { presets: [], lastStation: asked };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('asked');
   });
 });
