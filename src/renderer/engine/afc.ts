@@ -42,14 +42,6 @@ export class Afc {
     return delay;
   }
 
-  /** The schedule this instance will produce, for documentation and tests. */
-  static schedule(maxAttempts = AFC_MAX_ATTEMPTS): number[] {
-    const afc = new Afc(maxAttempts);
-    const out: number[] = [];
-    while (!afc.exhausted) out.push(afc.nextDelayMs());
-    return out;
-  }
-
   reset(): void {
     this.attempt = 0;
   }

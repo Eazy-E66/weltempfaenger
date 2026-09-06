@@ -21,9 +21,8 @@ import type {
   Preset,
   RegisterIndex,
   Settings,
-  StationRef,
 } from '../../shared/contracts';
-import { EMPTY_SCOPE, INITIAL_PLAYBACK_STATE, DEFAULT_SETTINGS } from '../../shared/contracts';
+import { INITIAL_PLAYBACK_STATE, DEFAULT_SETTINGS } from '../../shared/contracts';
 import type { BrowseResults, FaceplateHandle, FaceplateHandlers, PanelNotice } from './types';
 import { PHASE_LABEL, airStateOf, isPowered } from './types';
 import { clamp, el, setAttr, setFlag, setText, silk } from './dom';
@@ -1279,27 +1278,5 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       lid.destroy();
       shell.remove();
     },
-  };
-}
-
-/** Convenience for hosts that keep a station list rather than a Band. */
-export function stationsToBand(
-  genre: string,
-  stations: StationRef[],
-  scale: { min: number; max: number; unit: 'MHz' | 'kHz' },
-): Band {
-  const sorted = [...stations].sort((a, b) => b.popularity - a.popularity);
-  const n = Math.max(1, sorted.length);
-  return {
-    genre,
-    stationCount: stations.length,
-    scaleMin: scale.min,
-    scaleMax: scale.max,
-    scaleUnit: scale.unit,
-    slots: sorted.map((station, i) => ({
-      station,
-      position: clamp((i + 0.5) / n, 0.01, 0.99),
-      width: clamp(0.004 + station.popularity * 0.012, 0.004, 0.02),
-    })),
   };
 }

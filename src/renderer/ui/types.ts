@@ -27,7 +27,6 @@ import type {
 
 /** Result set for the register's sheet. */
 export interface BrowseResults {
-  query: string;
   stations: StationRef[];
   /** True while the host is fetching; the list shows a scanning state. */
   loading: boolean;

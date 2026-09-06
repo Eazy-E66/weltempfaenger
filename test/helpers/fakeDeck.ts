@@ -386,15 +386,15 @@ export class FakeProxy {
         start: (url: string) => this.start(url),
         stop: (id: string) => this.stop(id),
         stopAll: noop,
-        onStats: (cb) => {
+        onStats: (cb: (s: ProxySessionStats) => void) => {
           this.statsSubs.add(cb);
           return () => this.statsSubs.delete(cb);
         },
-        onMetadata: (cb) => {
+        onMetadata: (cb: (m: ProxyMetadata) => void) => {
           this.metaSubs.add(cb);
           return () => this.metaSubs.delete(cb);
         },
-        onEvent: (cb) => {
+        onEvent: (cb: (e: ProxyEvent) => void) => {
           this.eventSubs.add(cb);
           return () => this.eventSubs.delete(cb);
         },
@@ -402,13 +402,12 @@ export class FakeProxy {
       settings: { load: async () => ({}) as never, save: noop },
       memory: { load: async () => ({ presets: [] }), save: noop },
       directory: {
-        listGenres: async () => ({ ok: true, value: [] }) as never,
         listIndex: async () => ({ ok: true, value: {} }) as never,
         search: async () => ({ ok: true, value: [] }) as never,
         reportListening: noop,
       },
       resolver: { resolve: async () => ({ ok: true, streams: [] }) as never },
-      app: { info: async () => ({}) as never, capturePage: async () => '' },
+      app: {},
       reportPlaybackState: () => {},
     } as unknown as PsppcprBridge;
   }

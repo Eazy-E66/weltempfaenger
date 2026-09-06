@@ -23,7 +23,6 @@ export { getBridge, hasBridge } from './bridge.js';
 export type { PsppcprBridge } from './bridge.js';
 export {
   isAttended,
-  attentionReason,
   onAttentionChange,
   setAttendedForTest,
 } from './attention.js';

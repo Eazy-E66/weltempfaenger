@@ -12,7 +12,6 @@ import {
   type AppInfo,
   type AttentionReason,
   type DirectoryResult,
-  type ResumeIntent,
   type StationMemory,
   type WindowAttention,
 } from './ipc.js';
@@ -21,7 +20,6 @@ import {
   EMPTY_SCOPE,
   INITIAL_PLAYBACK_STATE,
   LOG_CAPACITY,
-  type GenreTag,
   type LogEntry,
   type RegisterIndex,
   type RegisterScope,
@@ -103,12 +101,11 @@ app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
  * Autoplay policy: this application IS an audio player.
  *
  * The gesture requirement exists to stop web pages making noise at strangers.
- * Here it stops exactly one thing that ought to work: putting the station back
- * on the air after the app was killed while playing (see `resumeIntent`). With
- * the gate in place the resumed tune would open the socket, fill the buffer and
- * feed a suspended AudioContext — a receiver reading PLAYING with silence
- * coming out of it, which is the one thing Law 2 forbids outright. Nothing here
- * plays without either a hand or a crash to recover from.
+ * Here every tune already follows a hand — RADIO ON, a memory key, a ledger
+ * row — but the gate would also hold a re-lock or a mount walk that happens
+ * seconds after that hand has gone, feeding a suspended AudioContext: a
+ * receiver reading PLAYING with silence coming out of it, which is the one
+ * thing Law 2 forbids outright. Nothing plays without a hand having asked.
  */
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
@@ -139,7 +136,6 @@ function coerceSettings(raw: Partial<Settings>): Settings {
     afcEnabled: typeof raw.afcEnabled === 'boolean' ? raw.afcEnabled : DEFAULT_SETTINGS.afcEnabled,
     bufferDepth: raw.bufferDepth === 'narrow' || raw.bufferDepth === 'wide' ? raw.bufferDepth : DEFAULT_SETTINGS.bufferDepth,
     dialLampOn: typeof raw.dialLampOn === 'boolean' ? raw.dialLampOn : DEFAULT_SETTINGS.dialLampOn,
-    lastStationId: typeof raw.lastStationId === 'string' ? raw.lastStationId : undefined,
     scope: coerceScope(raw.scope),
     cutBandIndex: Math.floor(num(raw.cutBandIndex, 0, 11, DEFAULT_SETTINGS.cutBandIndex)),
   };
@@ -470,62 +466,6 @@ function setOnAir(win: BrowserWindow, onAir: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
-// The session marker: what this run was doing when it stopped
-//
-// Written on every on-air/off-air transition and stamped clean on the way out.
-// A run that ends without that stamp — a GPU process that took the browser with
-// it, an OOM kill, a laptop that never came back from suspend — leaves a marker
-// saying "this receiver was playing", and the next launch can put the station
-// back on the air instead of coming up in standby as though nothing happened.
-// ---------------------------------------------------------------------------
-
-interface SessionMarker {
-  onAir: boolean;
-  stationId?: string;
-  cleanExit: boolean;
-  at: number;
-}
-
-const sessionPath = (): string => path.join(app.getPath('userData'), 'session.json');
-
-/** Read once, at startup, before this run overwrites it. */
-let previousSession: SessionMarker | null = null;
-
-function readPreviousSession(): void {
-  try {
-    const raw = JSON.parse(fs.readFileSync(sessionPath(), 'utf8')) as Partial<SessionMarker>;
-    previousSession = {
-      onAir: raw.onAir === true,
-      cleanExit: raw.cleanExit === true,
-      at: typeof raw.at === 'number' ? raw.at : 0,
-    };
-    if (typeof raw.stationId === 'string' && raw.stationId) {
-      previousSession.stationId = raw.stationId;
-    }
-  } catch {
-    previousSession = null;
-  }
-}
-
-function writeSession(marker: SessionMarker): void {
-  try {
-    writeJsonAtomic(sessionPath(), marker);
-  } catch {
-    /* A receiver that cannot write a hint must still play a radio station. */
-  }
-}
-
-function resumeIntent(): ResumeIntent {
-  const prev = previousSession;
-  if (!prev) return { resume: false, reason: 'no-record' };
-  if (!prev.onAir) return { resume: false, reason: 'was-idle' };
-  if (prev.cleanExit) return { resume: false, reason: 'clean-exit' };
-  return prev.stationId
-    ? { resume: true, stationId: prev.stationId, reason: 'unclean-exit' }
-    : { resume: true, reason: 'unclean-exit' };
-}
-
-// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
@@ -567,7 +507,8 @@ function createWindow(): BrowserWindow {
    * A renderer that is gone (OOM, a GPU reset it could not survive, a crash)
    * used to leave a live main process holding a blank window. Reload it: the
    * proxy, the settings and the session marker all live out here, so what comes
-   * back is the same receiver, and `resumeIntent` puts the station back on. */
+   * back is the same receiver: the band restores from `settings.json` and the
+   * dome is one press from playing again. */
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error(`renderer gone (${details.reason}); reloading the panel`);
     if (!win.isDestroyed()) win.reload();
@@ -628,10 +569,6 @@ function registerIpc(): void {
   ipcMain.handle(IPC.memoryLoad, (): StationMemory => loadMemory());
   ipcMain.handle(IPC.memorySave, (_e, memory: unknown) => saveMemory(coerceMemory(memory)));
 
-  ipcMain.handle(IPC.directoryGenres, (_e, minStations: unknown): Promise<DirectoryResult<GenreTag[]>> => {
-    const min = Math.max(0, Math.floor(Number(minStations)) || 0);
-    return directoryCall(() => directory.listGenres(min));
-  });
   ipcMain.handle(
     IPC.directorySearch,
     async (_e, query: unknown): Promise<DirectoryResult<StationRef[]>> => {
@@ -682,29 +619,14 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.appInfo, (): AppInfo => appInfo());
 
-  ipcMain.handle(IPC.appResumeIntent, (): ResumeIntent => resumeIntent());
-
-  ipcMain.handle(IPC.capturePage, async () => {
-    const win = mainWindow;
-    if (!win || win.isDestroyed()) throw new Error('no window');
-    const image = await win.webContents.capturePage();
-    return image.toDataURL();
-  });
-
   ipcMain.on(IPC.reportState, (_e, state: PlaybackState) => {
     const wasOnAir = isOnAir(lastPlaybackState);
-    const previousStation = lastPlaybackState.station?.id;
     lastPlaybackState = state;
     const onAir = isOnAir(state);
     const win = mainWindow;
     // The renderer reports ten times a second and nothing below is worth doing
     // ten times a second: act on the transitions only.
-    if (win && !win.isDestroyed() && (onAir !== wasOnAir || state.station?.id !== previousStation)) {
-      if (onAir !== wasOnAir) setOnAir(win, onAir);
-      const marker: SessionMarker = { onAir, cleanExit: false, at: Date.now() };
-      if (state.station?.id) marker.stationId = state.station.id;
-      writeSession(marker);
-    }
+    if (win && !win.isDestroyed() && onAir !== wasOnAir) setOnAir(win, onAir);
   });
 }
 
@@ -735,7 +657,6 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     await proxy.start();
     // Before anything this run writes over it.
-    readPreviousSession();
     registerIpc();
 
     /* A child process died. Only the renderer is fatal to the panel and it has
@@ -803,16 +724,6 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     proxy.closeAllSessions('app quitting');
-    // Stamped clean: this receiver was switched off, it did not fall over, and
-    // the next launch must come up in standby rather than putting a station
-    // back on the air nobody asked for.
-    const marker: SessionMarker = {
-      onAir: isOnAir(lastPlaybackState),
-      cleanExit: true,
-      at: Date.now(),
-    };
-    if (lastPlaybackState.station?.id) marker.stationId = lastPlaybackState.station.id;
-    writeSession(marker);
   });
 
   app.on('will-quit', () => {

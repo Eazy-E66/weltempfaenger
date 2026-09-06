@@ -152,7 +152,7 @@ export class ReceiverHost implements FaceplateHost {
   private cut: Cut | null = null;
   private cutBandIndex = 0;
   private band: Band = layoutBand('', [], { totalStations: 0 });
-  private browse: BrowseResults = { query: '', stations: [], loading: true };
+  private browse: BrowseResults = { stations: [], loading: true };
   private state: PlaybackState = INITIAL_PLAYBACK_STATE;
 
   private directoryFault: DirectoryFailure | null = null;
@@ -354,7 +354,6 @@ export class ReceiverHost implements FaceplateHost {
       // surfaces, because the register is genuinely unprintable *and* every
       // control on the panel is genuinely dead.
       this.setBrowse({
-        query: '',
         stations: [],
         loading: false,
         error: 'APP BRIDGE MISSING — RESTART THE APP',
@@ -979,7 +978,7 @@ export class ReceiverHost implements FaceplateHost {
     // `loading: true` carries the PREVIOUS rows forward by design, so it carries
     // the previous key with them: the rows and their identity travel together on
     // every publish, without exception.
-    this.setBrowse({ query: '', stations: this.browse.stations, loading: true, key: this.browse.key });
+    this.setBrowse({ stations: this.browse.stations, loading: true, key: this.browse.key });
 
     const query = supersetQuery(scope, SCOPE_LIMIT) ?? { limit: IDLE_LIMIT };
     const result = await bridge.directory.search(query);
@@ -991,7 +990,6 @@ export class ReceiverHost implements FaceplateHost {
       // A fault is a settled answer to *this* question (Law 4), so it carries
       // this question's key and the register may print NOT PRINTED for it.
       this.setBrowse({
-        query: '',
         stations: [],
         loading: false,
         key,
@@ -1011,7 +1009,6 @@ export class ReceiverHost implements FaceplateHost {
     // Zero rows is a real answer, and the register prints NO ENTRY for it. It
     // is not a fault and must not be dressed as one.
     this.setBrowse({
-      query: '',
       stations: result.value,
       loading: false,
       key,

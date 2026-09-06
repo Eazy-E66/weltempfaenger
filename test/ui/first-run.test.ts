@@ -310,14 +310,13 @@ describe('the sheet header cannot be poisoned by a panel message', () => {
 
   it('drops a fault that would print NOT PRINTED over real rows', () => {
     const rows = [station('a'), station('b')];
-    const safe = sheetSafe({ query: '', stations: rows, loading: false, error: 'NOTHING TUNED' });
+    const safe = sheetSafe({ stations: rows, loading: false, error: 'NOTHING TUNED' });
     expect(safe.error).toBeUndefined();
     expect(safe.stations).toHaveLength(2);
   });
 
   it('leaves a warning alone — a short result is still a printed one', () => {
     const safe = sheetSafe({
-      query: '',
       stations: [station('a')],
       loading: false,
       warning: 'PARTIAL',
@@ -362,14 +361,14 @@ describe('the band plate hint reflects reality', () => {
   });
 
   it('stops nagging while audio is playing', () => {
-    const hint = bandHint({ registerVisible: false, air: 'on' }, false);
+    const hint = bandHint({ registerVisible: false, air: 'on', warming: false }, false);
     expect(hint).not.toMatch(/PRESS REGISTER/);
     expect(hint).toContain('PLAYING');
   });
 
   it('says nothing at all once a band is cut', () => {
-    expect(bandHint({ registerVisible: true, air: 'on' }, true)).toBe('');
-    expect(bandHint({ registerVisible: false, air: 'off' }, true)).toBe('');
+    expect(bandHint({ registerVisible: true, air: 'on', warming: false }, true)).toBe('');
+    expect(bandHint({ registerVisible: false, air: 'off', warming: false }, true)).toBe('');
   });
 
   it('is in plain words, not in register vocabulary', () => {
@@ -377,7 +376,7 @@ describe('the band plate hint reflects reality', () => {
     // own word for the state and the register teaches it. The instruction a
     // stranger reads may not require having learnt it first.
     for (const registerVisible of [true, false]) {
-      const hint = bandHint({ registerVisible, air: 'off' }, false);
+      const hint = bandHint({ registerVisible, air: 'off', warming: false }, false);
       expect(hint).not.toContain('NO BAND CUT');
       expect(hint).toMatch(/PICK|PRESS/);
     }

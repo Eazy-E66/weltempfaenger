@@ -108,10 +108,10 @@ handle = mountFaceplate(root, {
 let lastResults = searchStations('', engine.genre);
 
 function pushResults(query: string): void {
-  handle.setBrowseResults({ query, stations: [], loading: true });
+  handle.setBrowseResults({ stations: [], loading: true });
   window.setTimeout(() => {
     lastResults = searchStations(query, engine.genre);
-    handle.setBrowseResults({ query, stations: lastResults, loading: false });
+    handle.setBrowseResults({ stations: lastResults, loading: false });
   }, 220);
 }
 
@@ -126,7 +126,7 @@ handle.setIndex(
   },
   null,
 );
-handle.setBrowseResults({ query: '', stations: lastResults, loading: false });
+handle.setBrowseResults({ stations: lastResults, loading: false });
 paint();
 
 // ---------------------------------------------------------------------------

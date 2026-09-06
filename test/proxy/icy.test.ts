@@ -113,13 +113,13 @@ describe('the plain form, which must keep working exactly as before', () => {
   });
 
   it('keeps quotes that belong to the title', () => {
-    expect(parseTitleValue('Prince - Nothing Compares 2 "U"').title).toBe(
+    expect(parseTitleValue('Prince - Nothing Compares 2 "U"')!.title).toBe(
       'Prince - Nothing Compares 2 "U"',
     );
   });
 
   it('strips a trailing record but not a leading one', () => {
-    expect(parseTitleValue('Yes - Roundabout length="00:08:29"').title).toBe('Yes - Roundabout');
+    expect(parseTitleValue('Yes - Roundabout length="00:08:29"')!.title).toBe('Yes - Roundabout');
   });
 });
 

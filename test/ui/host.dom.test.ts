@@ -33,7 +33,6 @@ import {
   INITIAL_PLAYBACK_STATE,
   emptyScope,
   type Band,
-  type BandSlot,
   type Cut,
   type GenreTag,
   type PlaybackState,
@@ -167,7 +166,6 @@ class FakeBridge {
       },
       memory: { load: async () => ({ presets: [] as Preset[] }), save: noop },
       directory: {
-        listGenres: async () => ({ ok: true, value: [] }),
         listIndex: async () =>
           this.index ? { ok: true, value: this.index } : { ok: false, failure: { kind: 'network', message: 'no' } },
         search: async (query: Record<string, unknown>) => {
@@ -198,7 +196,7 @@ class FakeBridge {
                 })),
               },
       },
-      app: { info: async () => ({}), capturePage: async () => '' },
+      app: {},
       reportPlaybackState: () => {},
     };
     (window as unknown as Record<string, unknown>).psppcpr = bridge;
@@ -759,7 +757,7 @@ describe('flushing a debounced write', () => {
 
 // A band is only referenced through the host's own layout; this keeps the
 // unused-type checker honest about the shapes this file names.
-export type { Band, BandSlot, RegisterScope };
+export type { Band, RegisterScope };
 
 // ---------------------------------------------------------------------------
 // RECONNECT is a control, and a control that is pressed does something visible

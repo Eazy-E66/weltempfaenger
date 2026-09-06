@@ -451,7 +451,7 @@ export function brushedTile({ w = 1024, h = 512, seed = 11, amp = 1 }: BrushedOp
    ========================================================================== */
 
 export function grilleSheet({
-  w, h, dpr = 1, wDev = 0, hDev = 0, pitch = 9.2, holeRatio = 0.60, seed = 5,
+  w, h, dpr = 1, wDev = 0, hDev = 0, pitch = 9.2, holeRatio = 0.60,
   sheet = [146, 141, 131],          // lit sheet colour
   driver = null,                     // {x,y,r} in CSS px — the cone behind
   grain = null,                      // a brushedTile() canvas — the web between

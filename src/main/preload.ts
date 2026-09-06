@@ -10,13 +10,11 @@ import {
   type AppInfo,
   type DirectoryResult,
   type PsppcprBridge,
-  type ResumeIntent,
   type StationMemory,
   type Unsubscribe,
   type WindowAttention,
 } from './ipc.js';
 import type {
-  GenreTag,
   PlaybackState,
   RegisterIndex,
   ResolveResult,
@@ -62,8 +60,6 @@ const bridge: PsppcprBridge = {
   },
 
   directory: {
-    listGenres: (minStations: number): Promise<DirectoryResult<GenreTag[]>> =>
-      ipcRenderer.invoke(IPC.directoryGenres, minStations),
     listIndex: (): Promise<DirectoryResult<RegisterIndex>> =>
       ipcRenderer.invoke(IPC.directoryIndex),
     search: (query: StationQuery): Promise<DirectoryResult<StationRef[]>> =>
@@ -78,9 +74,7 @@ const bridge: PsppcprBridge = {
 
   app: {
     info: (): Promise<AppInfo> => ipcRenderer.invoke(IPC.appInfo),
-    capturePage: (): Promise<string> => ipcRenderer.invoke(IPC.capturePage),
     onAttention: (cb) => subscribe<WindowAttention>(IPC.windowAttention, cb),
-    resumeIntent: (): Promise<ResumeIntent> => ipcRenderer.invoke(IPC.appResumeIntent),
   },
 
   reportPlaybackState: (state: PlaybackState): void => {

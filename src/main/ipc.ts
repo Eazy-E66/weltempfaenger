@@ -7,7 +7,6 @@
  */
 
 import type {
-  GenreTag,
   LogEntry,
   PlaybackState,
   RegisterIndex,
@@ -35,14 +34,11 @@ export const IPC = {
   settingsSave: 'psppcpr:settings:save',
   memoryLoad: 'psppcpr:memory:load',
   memorySave: 'psppcpr:memory:save',
-  directoryGenres: 'psppcpr:directory:genres',
   directoryIndex: 'psppcpr:directory:index',
   directorySearch: 'psppcpr:directory:search',
   directoryReport: 'psppcpr:directory:report',
   resolverResolve: 'psppcpr:resolver:resolve',
   appInfo: 'psppcpr:app:info',
-  capturePage: 'psppcpr:app:capture-page',
-  appResumeIntent: 'psppcpr:app:resume-intent',
   /** renderer -> main, fire and forget */
   reportState: 'psppcpr:state:report',
   /** main -> renderer, push */
@@ -86,19 +82,6 @@ export interface WindowAttention {
   attended: boolean;
   reason: AttentionReason;
   at: number;
-}
-
-/**
- * What the previous run was doing when it stopped, and whether it stopped on
- * purpose. See `resumeIntent` on the bridge.
- */
-export interface ResumeIntent {
-  /** The previous run was on the air and did not exit cleanly. */
-  resume: boolean;
-  /** Which station, when known. Matched against `StationMemory.lastStation`. */
-  stationId?: string;
-  /** For the log and for tests: 'clean-exit' | 'was-idle' | 'unclean-exit'. */
-  reason: 'clean-exit' | 'was-idle' | 'unclean-exit' | 'no-record';
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +186,6 @@ export interface PsppcprBridge {
    */
   directory: {
     /** Real tags with real counts. The band selector is built from this alone. */
-    listGenres(minStations: number): Promise<DirectoryResult<GenreTag[]>>;
     /** The register's whole printed index: subjects, origins, tongues, totals. */
     listIndex(): Promise<DirectoryResult<RegisterIndex>>;
     search(query: StationQuery): Promise<DirectoryResult<StationRef[]>>;
@@ -221,8 +203,6 @@ export interface PsppcprBridge {
 
   app: {
     info(): Promise<AppInfo>;
-    /** PNG data URL of the window, via webContents.capturePage(). */
-    capturePage(): Promise<string>;
     /**
      * Whether anybody can see the window. Pushed on every change, and once on
      * subscribe so a late subscriber is never left guessing.
@@ -233,7 +213,6 @@ export interface PsppcprBridge {
      * taken off the air by a crash, a GPU reset or a suspend should come back
      * on the air; one that was switched off should come back in standby.
      */
-    resumeIntent(): Promise<ResumeIntent>;
   };
 
   /**
