@@ -105,12 +105,6 @@ export function isAttended(): boolean {
   return attended;
 }
 
-/** Why, for diagnostics. Never shown on the panel. */
-export function attentionReason(): string {
-  install();
-  return reason;
-}
-
 /**
  * Called on every change, with the new value. Returns the unsubscribe.
  *

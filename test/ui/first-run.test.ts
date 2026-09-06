@@ -310,14 +310,13 @@ describe('the sheet header cannot be poisoned by a panel message', () => {
 
   it('drops a fault that would print NOT PRINTED over real rows', () => {
     const rows = [station('a'), station('b')];
-    const safe = sheetSafe({ query: '', stations: rows, loading: false, error: 'NOTHING TUNED' });
+    const safe = sheetSafe({ stations: rows, loading: false, error: 'NOTHING TUNED' });
     expect(safe.error).toBeUndefined();
     expect(safe.stations).toHaveLength(2);
   });
 
   it('leaves a warning alone — a short result is still a printed one', () => {
     const safe = sheetSafe({
-      query: '',
       stations: [station('a')],
       loading: false,
       warning: 'PARTIAL',
@@ -339,26 +338,37 @@ describe('the sheet header cannot be poisoned by a panel message', () => {
 
 describe('the band plate hint reflects reality', () => {
   it('does not tell you to open a register that is already open', () => {
-    const hint = bandHint({ registerVisible: true, air: 'off' }, false);
+    const hint = bandHint({ registerVisible: true, air: 'off', warming: false }, false);
     expect(hint).not.toMatch(/OPEN THE REGISTER/);
     expect(hint).toContain('ABOVE');
   });
 
   it('does tell you where the register is when it is not on screen', () => {
-    const hint = bandHint({ registerVisible: false, air: 'off' }, false);
+    const hint = bandHint({ registerVisible: false, air: 'off', warming: false }, false);
     // Named as the key is silkscreened, not as the machine files it.
     expect(hint).toContain('STATIONS');
   });
 
+  it('says the list is still coming in, rather than sending you to cut a band that is about to appear', () => {
+    // Measured on the packaged build: the plate said `PRESS STATIONS, PICK A
+    // SUBJECT, THEN THROW CUT BAND` while the annunciator two rows down said
+    // `THE DIAL FILLS AND PLAY STARTS ON ITS OWN`. Two instructions, one panel.
+    const hint = bandHint({ registerVisible: false, air: 'off', warming: true }, false);
+    expect(hint).toMatch(/COMING IN/);
+    expect(hint).not.toMatch(/CUT BAND/);
+    // A cut on the drum outranks everything: the plate prints the caption.
+    expect(bandHint({ registerVisible: false, air: 'off', warming: true }, true)).toBe('');
+  });
+
   it('stops nagging while audio is playing', () => {
-    const hint = bandHint({ registerVisible: false, air: 'on' }, false);
+    const hint = bandHint({ registerVisible: false, air: 'on', warming: false }, false);
     expect(hint).not.toMatch(/PRESS REGISTER/);
     expect(hint).toContain('PLAYING');
   });
 
   it('says nothing at all once a band is cut', () => {
-    expect(bandHint({ registerVisible: true, air: 'on' }, true)).toBe('');
-    expect(bandHint({ registerVisible: false, air: 'off' }, true)).toBe('');
+    expect(bandHint({ registerVisible: true, air: 'on', warming: false }, true)).toBe('');
+    expect(bandHint({ registerVisible: false, air: 'off', warming: false }, true)).toBe('');
   });
 
   it('is in plain words, not in register vocabulary', () => {
@@ -366,7 +376,7 @@ describe('the band plate hint reflects reality', () => {
     // own word for the state and the register teaches it. The instruction a
     // stranger reads may not require having learnt it first.
     for (const registerVisible of [true, false]) {
-      const hint = bandHint({ registerVisible, air: 'off' }, false);
+      const hint = bandHint({ registerVisible, air: 'off', warming: false }, false);
       expect(hint).not.toContain('NO BAND CUT');
       expect(hint).toMatch(/PICK|PRESS/);
     }

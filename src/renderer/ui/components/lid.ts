@@ -92,7 +92,7 @@ import type {
   RegisterScope,
   StationRef,
 } from '../../../shared/contracts';
-import { clamp, el, setAttr, setFlag, svg } from '../dom';
+import { clamp, el, setAttr, setFlag } from '../dom';
 import { textureLayer } from '../textures';
 import type { AirState } from '../types';
 // `COASTLINES` / `latToY` / `lonToX` are no longer imported here: the plate

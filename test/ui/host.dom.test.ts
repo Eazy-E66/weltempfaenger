@@ -33,7 +33,6 @@ import {
   INITIAL_PLAYBACK_STATE,
   emptyScope,
   type Band,
-  type BandSlot,
   type Cut,
   type GenreTag,
   type PlaybackState,
@@ -48,6 +47,7 @@ import type { BrowseResults, FaceplateHandle, PanelNotice } from '../../src/rend
 import { createReadout } from '../../src/renderer/ui/components/readout';
 import { FakeAudioElement, installWebAudio } from '../helpers/fakeDeck';
 import type { ProxyEvent, ProxyMetadata, ProxySessionStats } from '../../src/main/proxy/types';
+import type { StationMemory } from '../../src/main/ipc';
 
 // ---------------------------------------------------------------------------
 // The world outside the renderer
@@ -92,6 +92,7 @@ class FakeBridge {
   resolveFailure: ResolveFailure | null = null;
   /** Settings on disk. A relaunch is `mount()` with these already written. */
   onDisk: Settings = { ...DEFAULT_SETTINGS, scope: emptyScope() };
+  memoryOnDisk: StationMemory = { presets: [] as Preset[] };
   /** The directory is unreachable — a fault, not an empty answer. */
   searchFails = false;
   /** Upstream URLs the engine actually asked the proxy to open, in order. */
@@ -165,9 +166,8 @@ class FakeBridge {
           this.onDisk = value;
         },
       },
-      memory: { load: async () => ({ presets: [] as Preset[] }), save: noop },
+      memory: { load: async () => this.memoryOnDisk, save: noop },
       directory: {
-        listGenres: async () => ({ ok: true, value: [] }),
         listIndex: async () =>
           this.index ? { ok: true, value: this.index } : { ok: false, failure: { kind: 'network', message: 'no' } },
         search: async (query: Record<string, unknown>) => {
@@ -198,7 +198,7 @@ class FakeBridge {
                 })),
               },
       },
-      app: { info: async () => ({}), capturePage: async () => '' },
+      app: {},
       reportPlaybackState: () => {},
     };
     (window as unknown as Record<string, unknown>).psppcpr = bridge;
@@ -759,7 +759,7 @@ describe('flushing a debounced write', () => {
 
 // A band is only referenced through the host's own layout; this keeps the
 // unused-type checker honest about the shapes this file names.
-export type { Band, BandSlot, RegisterScope };
+export type { Band, RegisterScope };
 
 // ---------------------------------------------------------------------------
 // RECONNECT is a control, and a control that is pressed does something visible
@@ -978,7 +978,7 @@ describe('a band cut, then a relaunch', () => {
 
   it('writes the throw to settings, not 480 station records', async () => {
     const written = await cutAndQuit();
-    expect(written.cutStanding).toBe(true);
+    expect(written.cutScope?.terms).toEqual(['jazz']);
     expect(written.scope.terms).toEqual(['jazz']);
     // The rows are re-derived, never copied: a settings file that carried them
     // would be a private snapshot free to drift from the directory.
@@ -1153,7 +1153,7 @@ describe('a profile that has never cut anything', () => {
       b.answer = () => hot;
     });
     await vi.advanceTimersByTimeAsync(600);
-    expect(rig.bridge.onDisk.cutStanding).toBe(false);
+    expect(rig.bridge.onDisk.cutScope).toBeUndefined();
   });
 
   it('plays when the power dome is pressed, which is the whole point', async () => {
@@ -1248,7 +1248,7 @@ describe('a profile that has never cut anything', () => {
     expect(r.cuts.at(-1)!.cut!.caption).toBe('POP');
     // Persisted, so the next launch restores theirs rather than cutting another
     // opening band over the top of it.
-    expect(r.bridge.onDisk.cutStanding).toBe(true);
+    expect(r.bridge.onDisk.cutScope?.terms).toEqual(['pop']);
   });
 
   it('will not hand the drum a station it already knows it cannot play', async () => {
@@ -1661,5 +1661,242 @@ describe('the frame loop on a dead station', () => {
 
     expect(r.states.at(-1)!.phase).toBe('buffering');
     expect(parked(r)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A throw the directory can no longer satisfy
+// ---------------------------------------------------------------------------
+
+describe('a standing band whose scope now matches nothing', () => {
+  const jazzScope = { ...EMPTY_SCOPE, terms: ['jazz'] };
+
+  it('does not hold RADIO ON on WARMING UP for ever once the directory has answered', async () => {
+    // Measured on the packaged build: `cutStanding: true` beside a term the
+    // directory answered with zero rows kept `cutToRestore` armed, `warmingUp()`
+    // true, and every press of the power dome on `WARMING UP · PLAY STARTS ON
+    // ITS OWN` — on every launch, with nothing on its way.
+    rig = await booted(
+      (b) => {
+        b.answer = () => [];
+      },
+      (b) => {
+        b.onDisk = { ...DEFAULT_SETTINGS, scope: jazzScope, cutScope: jazzScope, cutBandIndex: 3 };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.notices.at(-1)!.headline).not.toBe('WARMING UP');
+    expect(r.notices.at(-1)!.action).toBeTruthy();
+    // And the answer is not asked again on the next launch: the throw is gone
+    // from disk, the cards are not.
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.bridge.onDisk.cutScope).toBeUndefined();
+    expect(r.bridge.onDisk.scope.terms).toEqual(['jazz']);
+  });
+
+  it('gives the same honest answer when a card was pulled before the first list landed', async () => {
+    // A fresh profile whose opening band can never come, because the idle fetch
+    // was superseded by a scope the listener chose during it.
+    const pop = rows('pop', 30, { tags: ['pop'] });
+    rig = await booted((b) => {
+      b.hold = true;
+      b.answer = (q) => (q.genre === 'pop' ? [] : pop);
+    });
+    const r = rig;
+    r.host.handlers.onScope({ ...EMPTY_SCOPE, terms: ['pop'] });
+    await vi.advanceTimersByTimeAsync(300);
+    r.bridge.hold = false;
+    for (const open of r.bridge.gates.splice(0)) open();
+    await vi.advanceTimersByTimeAsync(300);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.notices.at(-1)!.headline).not.toBe('WARMING UP');
+  });
+});
+
+describe('a standing band cut from a scope the cards have since left', () => {
+  it('restores the throw, not the cards, with one extra round trip', async () => {
+    // JAZZ was thrown; then a POP card was pulled and the app quit. The drum
+    // must come back carrying JAZZ — the band that was standing — while the
+    // register shows the POP cards, which is what was left on the table.
+    const jazz = rows('jazz', 40, { tags: ['jazz'] });
+    const pop = rows('pop', 30, { tags: ['pop'] });
+    rig = await booted(
+      (b) => {
+        b.answer = (q) => (q.genre === 'jazz' ? jazz : q.genre === 'pop' ? pop : []);
+      },
+      (b) => {
+        b.onDisk = {
+          ...DEFAULT_SETTINGS,
+          scope: { ...EMPTY_SCOPE, terms: ['pop'] },
+          cutScope: { ...EMPTY_SCOPE, terms: ['jazz'] },
+          cutBandIndex: 0,
+        };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(r.bridge.queries.map((q) => q.genre).sort()).toEqual(['jazz', 'pop']);
+    const restored = r.cuts.filter((c) => c.cut && c.cut.bands.length > 0).at(-1);
+    expect(restored, 'a cut was restored').toBeTruthy();
+    expect(restored!.cut!.caption).toContain('JAZZ');
+    expect(r.bands.at(-1)!.slots[0]!.station.id).toMatch(/^jazz-/);
+    // The throw stays on disk as the throw; the cards stay as the cards.
+    expect(r.bridge.onDisk.cutScope?.terms).toEqual(['jazz']);
+    expect(r.bridge.onDisk.scope.terms).toEqual(['pop']);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A directory that comes back on its own
+// ---------------------------------------------------------------------------
+
+describe('a directory fault the listener does not touch', () => {
+  it('is re-pulled on a bounded schedule, and the sheet prints when the mirror answers', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted((b) => {
+      b.searchFails = true;
+      b.answer = () => hot;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(1);
+    expect(r.frame().count).toBe('NOT PRINTED');
+
+    // Nothing for 14 s, then the first unattended pull at 15 s.
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(r.bridge.queries.map((q) => JSON.stringify(q))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(r.bridge.queries).toHaveLength(2);
+
+    // Still down: the next one waits 30 s, not 15.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(r.bridge.queries).toHaveLength(2);
+    r.bridge.searchFails = false;
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(r.bridge.queries).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.frame().count).not.toBe('NOT PRINTED');
+    expect(r.bands.at(-1)!.slots.length).toBeGreaterThan(0);
+
+    // Answered: no further pulls are scheduled.
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(r.bridge.queries).toHaveLength(3);
+  });
+
+  it('spends its budget and then stops, leaving RECONNECT and REPRINT to a hand', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    // 15 + 30 + 60 + 120 s of retries, then nothing for as long as you like.
+    await vi.advanceTimersByTimeAsync(230_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    // A hand on REPRINT is a fresh budget.
+    r.host.handlers.onReprint();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(6);
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(r.bridge.queries).toHaveLength(7);
+  });
+
+  it('is re-pulled at once when the browser reports the network back', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(1);
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(2);
+  });
+
+  it('does nothing on `online` when there is no fault to recover from', async () => {
+    rig = await booted((b) => {
+      b.answer = () => rows('hot', 20);
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    const before = r.bridge.queries.length;
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(before);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// What RADIO ON switches on to after a relaunch
+// ---------------------------------------------------------------------------
+
+describe('RADIO ON after a relaunch', () => {
+  const band = rows('hot', 6);
+  const asked = station({ id: 'asked', name: 'Asked For', url: 'http://mount/asked' });
+  const heard = station({ id: 'heard', name: 'Heard', url: 'http://mount/heard' });
+
+  it('goes to the last station that was actually heard, not to one that was asked for and never came up', async () => {
+    // Measured on the live directory: two mounts refused the receiver, the app
+    // was quit on the second, and every RADIO ON afterwards went straight back
+    // to STATION FAILED — because `lastStation` is intent, and the log is fact.
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = { presets: [], lastStation: asked, log: [{ station: heard, heardAt: 1 }] };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('heard');
+  });
+
+  it('still honours the last intent when it was heard', async () => {
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = {
+          presets: [],
+          lastStation: asked,
+          log: [
+            { station: heard, heardAt: 2 },
+            { station: asked, heardAt: 1 },
+          ],
+        };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('asked');
+  });
+
+  it('falls back to the last intent when nothing was ever heard', async () => {
+    rig = await booted(
+      (b) => {
+        b.answer = () => band;
+      },
+      (b) => {
+        b.memoryOnDisk = { presets: [], lastStation: asked };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.states.at(-1)!.station?.id).toBe('asked');
   });
 });

@@ -698,11 +698,22 @@ async function main() {
     // accessible name — not a test-only hook, so this exercises the same path a
     // hand does. Its own result is not asserted: if the control is missing the
     // republish simply never comes and the check below says so.
+    // The wake must not depend on the directory answering: pressing RADIO ON
+    // on a runner whose station list is still in flight parks the press on
+    // WARMING UP and publishes nothing, which is exactly how this check went
+    // red on every CI run while passing on a dev box with a warm mirror. So
+    // the power control is pressed (the real gesture, kept as evidence) AND the
+    // engine is asked to publish through the host the renderer exposes for
+    // this purpose: `stop()` emits a state whether or not anything was tuned,
+    // and that emission still travels renderer -> preload -> IPC -> main.
     const wakeRes = await call(hooks, '/test/exec', {
       method: 'POST',
       body:
         "(() => { const b = document.querySelector('[aria-label^=\"Radio power\"]'); " +
-        "if (!b) return 'no power control'; b.click(); return 'pressed'; })()",
+        "const host = window.__weltempfaenger; " +
+        "if (!b) return 'no power control'; b.click(); " +
+        "if (!host || !host.engine || typeof host.engine.stop !== 'function') return 'pressed; no engine on the host'; " +
+        "setTimeout(() => host.engine.stop(), 300); return 'pressed; engine.stop() queued'; })()",
     });
     evidence.playbackWake = wakeRes.json ? (wakeRes.json.value ?? wakeRes.json.error) : `HTTP ${wakeRes.status}`;
     for (let i = 0; i < 50; i++) {
@@ -728,9 +739,22 @@ async function main() {
   evidence.playbackChannel = { sentinel, republished };
 
   // -- 6. /test/screenshot --------------------------------------------------
+  // The PNG comes back over the channel and is written here. Asking the app
+  // to write it to `--screenshot=release/…` was refused by the hardened route,
+  // which only writes inside the temp directory — and the smoke then failed
+  // on every CI run for a path it had chosen itself.
   const shotPath = opts.screenshot || path.join(profileDir, 'window.png');
-  const shotRes = await call(hooks, '/test/screenshot', { query: { path: shotPath }, timeoutMs: 30_000 });
-  const wrote = shotRes.status === 200 && shotRes.json && shotRes.json.ok === true && fs.existsSync(shotPath);
+  const shotRes = await call(hooks, '/test/screenshot', { timeoutMs: 30_000 });
+  if (shotRes.status === 200 && shotRes.raw.length > 0) {
+    try {
+      fs.mkdirSync(path.dirname(shotPath), { recursive: true });
+      fs.writeFileSync(shotPath, shotRes.raw);
+    } catch (err) {
+      shotRes.status = 0;
+      shotRes.text = `could not write ${shotPath}: ${err.message}`;
+    }
+  }
+  const wrote = shotRes.status === 200 && fs.existsSync(shotPath);
   if (check('GET /test/screenshot captured the window', wrote, wrote ? shotPath : `HTTP ${shotRes.status} ${shotRes.text.slice(0, 160)}`)) {
     const png = inspectPng(fs.readFileSync(shotPath));
     evidence.screenshot = { path: shotPath, ...png, kept: Boolean(opts.screenshot) };

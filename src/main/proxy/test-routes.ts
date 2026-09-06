@@ -25,6 +25,8 @@ export interface TestHookDeps {
   quit(): void;
   /** Hide or show the app window: see the /test/window route. */
   setWindowVisible(visible: boolean): void;
+  /** Resize the window; the BrowserWindow's own minimums still apply. */
+  setWindowSize(width: number, height: number): void;
   /**
    * Evaluate an expression in the renderer *as though a user had done it*, so
    * autoplay policy and every other user-activation gate behaves exactly as it
@@ -130,12 +132,24 @@ export function installTestHooks(
    */
   proxy.route('/test/window', (_req, res, url) => {
     const state = url.searchParams.get('state');
-    if (state !== 'hidden' && state !== 'shown') {
+    const w = Number(url.searchParams.get('w'));
+    const h = Number(url.searchParams.get('h'));
+    const resize = url.searchParams.has('w') || url.searchParams.has('h');
+    if (state !== null && state !== 'hidden' && state !== 'shown') {
       json(res, 400, { ok: false, error: 'state must be hidden or shown' });
       return;
     }
-    deps.setWindowVisible(state === 'shown');
-    json(res, 200, { ok: true, state });
+    if (resize && !(Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0)) {
+      json(res, 400, { ok: false, error: 'w and h must both be positive integers' });
+      return;
+    }
+    if (state === null && !resize) {
+      json(res, 400, { ok: false, error: 'give state=hidden|shown and/or w=&h=' });
+      return;
+    }
+    if (state !== null) deps.setWindowVisible(state === 'shown');
+    if (resize) deps.setWindowSize(w, h);
+    json(res, 200, { ok: true, ...(state !== null ? { state } : {}), ...(resize ? { size: [w, h] } : {}) });
   });
 
   proxy.route('/test/quit', (_req, res) => {

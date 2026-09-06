@@ -72,12 +72,11 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 describe('the proxy stats pump', () => {
   let proxy: ProxyServer;
   let upstream: Upstream;
-  let base: { port: number; token: string };
 
   beforeEach(async () => {
     upstream = await startUpstream();
     proxy = new ProxyServer({ allowPrivateHosts: true });
-    base = await proxy.start();
+    await proxy.start();
   });
 
   afterEach(async () => {

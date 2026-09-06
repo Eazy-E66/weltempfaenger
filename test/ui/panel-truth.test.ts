@@ -158,7 +158,7 @@ describe('the band plate never claims playback the engine did not report', () =>
   const PLAYING = 'PLAYING ONE STATION';
 
   it('says PLAYING only when the engine says playing', () => {
-    const said = (air: AirState): string => bandHint({ registerVisible: false, air }, false);
+    const said = (air: AirState): string => bandHint({ registerVisible: false, air, warming: false }, false);
     expect(said('on')).toContain(PLAYING);
     for (const air of ['off', 'trying', 'failed'] as AirState[]) {
       expect(said(air), air).not.toContain(PLAYING);
@@ -166,13 +166,13 @@ describe('the band plate never claims playback the engine did not report', () =>
   });
 
   it('reads a fault as failed, and names the control that re-tries it', () => {
-    const hint = bandHint({ registerVisible: false, air: 'failed' }, false);
+    const hint = bandHint({ registerVisible: false, air: 'failed', warming: false }, false);
     expect(hint).toContain('FAILED');
     expect(hint).toContain('RECONNECT');
   });
 
   it('reads an attempt in flight as trying', () => {
-    expect(bandHint({ registerVisible: true, air: 'trying' }, false)).toContain('TRYING');
+    expect(bandHint({ registerVisible: true, air: 'trying', warming: false }, false)).toContain('TRYING');
   });
 
   it('cannot print PLAYING for any phase the whole pipeline can produce', () => {
@@ -181,7 +181,7 @@ describe('the band plate never claims playback the engine did not report', () =>
     // would have failed on the shipped build for five of the eight phases.
     for (const phase of PHASES) {
       const state = at(phase);
-      const hint = bandHint({ registerVisible: false, air: airStateOf(state) }, false);
+      const hint = bandHint({ registerVisible: false, air: airStateOf(state), warming: false }, false);
       if (phase === 'playing') expect(hint).toContain(PLAYING);
       else expect(hint, phase).not.toContain(PLAYING);
     }

@@ -157,11 +157,15 @@ export function stationFaulted(
       tone: 'fault',
     };
   }
+  // The resolver's own sentence sometimes already names RECONNECT ("that mount
+  // is gone — try RECONNECT for another"); saying it twice in one line reads
+  // as a stutter, not as emphasis.
+  const retry = /RECONNECT/.test(said) ? '' : ' PRESS RECONNECT TO TRY AGAIN.';
   return {
     headline: 'STATION FAILED',
     action: opts.canRetry === false
       ? `${what}. PICK ANOTHER STATION FROM THE DIAL OR THE REGISTER.`
-      : `${what}. PRESS RECONNECT TO TRY ANOTHER MOUNT.`,
+      : `${what}.${retry}`,
     tone: 'fault',
   };
 }

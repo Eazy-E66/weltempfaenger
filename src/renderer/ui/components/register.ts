@@ -60,6 +60,7 @@ import {
   type SortKey,
   type Tab,
 } from '../register/facets';
+import { stalledWords } from './readout';
 
 const MAP_W = 300;
 const MAP_H = 158;
@@ -1561,9 +1562,11 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
           : '',
       );
     } else if (phase === 'stalled') {
-      setText(faultBig, 'FAULT · SIGNAL LOST');
-      setText(faultWhy, 'The station stopped sending. Nothing is reaching the decoder.');
-      setText(faultWhere, name ? `${name.toUpperCase()} WAS ON AIR` : '');
+      const words = stalledWords(playback);
+      setFlag(faultBar, 'is-advice', words.advice);
+      setText(faultBig, words.headline);
+      setText(faultWhy, words.why);
+      setText(faultWhere, name ? (words.advice ? `${name.toUpperCase()} IS STILL ON AIR` : `${name.toUpperCase()} WAS ON AIR`) : '');
     } else {
       const retry = playback.retry;
       setText(faultBig, 'RE-LOCKING');
@@ -2908,6 +2911,7 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
         was?.station?.id === next?.station?.id &&
         was?.error?.message === next?.error?.message &&
         was?.error?.kind === next?.error?.kind &&
+        was?.signalLoss === next?.signalLoss &&
         was?.retry?.attempt === next?.retry?.attempt &&
         was?.retry?.mount === next?.retry?.mount;
       if (same) return;

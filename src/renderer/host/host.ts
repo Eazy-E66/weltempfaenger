@@ -83,6 +83,13 @@ const SCOPE_LIMIT = 10000;
 const IDLE_LIMIT = 2000;
 /** Pulling three cards in a second is one intent, not three searches. */
 const SCOPE_DEBOUNCE_MS = 220;
+
+/**
+ * Unattended re-pulls after a directory fault, in order; the list is the
+ * budget. Four pulls over about four minutes covers a mirror that was down for
+ * a moment without turning a dead directory into a background request storm.
+ */
+const DIRECTORY_RETRY_MS: readonly number[] = [15_000, 30_000, 60_000, 120_000];
 /**
  * Measured playing seconds after which the mount currently in use counts as
  * good, and RECONNECT's candidate walk for that station is reset.
@@ -145,12 +152,20 @@ export class ReceiverHost implements FaceplateHost {
   private cut: Cut | null = null;
   private cutBandIndex = 0;
   private band: Band = layoutBand('', [], { totalStations: 0 });
-  private browse: BrowseResults = { query: '', stations: [], loading: true };
+  private browse: BrowseResults = { stations: [], loading: true };
   private state: PlaybackState = INITIAL_PLAYBACK_STATE;
 
   private directoryFault: DirectoryFailure | null = null;
+  /**
+   * The unattended re-pull after a directory fault. Bounded — see
+   * `DIRECTORY_RETRY_MS` — and reset to a fresh budget by any hand on
+   * RECONNECT or REPRINT, or by the browser reporting the network back.
+   */
+  private directoryRetryTimer = 0;
+  private directoryRetries = 0;
   /** Bumped per request so a slow answer can never overwrite a newer one. */
   private scopeGeneration = 0;
+  private indexGeneration = 0;
   private scopeTimer: number | undefined;
 
   /**
@@ -159,6 +174,14 @@ export class ReceiverHost implements FaceplateHost {
    * visibly different from the ninth.
    */
   private notice: PanelNotice | null = null;
+  /**
+   * The station a standing notice is about, when it is about one. A fault
+   * announced for station A must come down the moment station B is asked for:
+   * measured on the built app, `STATION FAILED — A — THAT ADDRESS SERVES A WEB
+   * PAGE` stayed on the annunciator through B's whole BUFFERING, under a
+   * readout that named B.
+   */
+  private noticeSubject?: string;
   private noticeSeq = 0;
 
   /** Which resolved candidate to prefer per station; advanced by RECONNECT. */
@@ -274,7 +297,45 @@ export class ReceiverHost implements FaceplateHost {
     document.addEventListener('pointerdown', this.onFirstGesture, { capture: true });
     document.addEventListener('keydown', this.onFirstGesture, { capture: true });
     window.addEventListener('pagehide', this.onPageHide);
+    window.addEventListener('online', this.onOnline);
     void this.boot();
+  }
+
+  /**
+   * The browser says the network is back. Only a hint — Chromium's `online`
+   * is "an interface is up", not "the directory answers" — so it is spent on
+   * exactly one thing: a directory fault that is standing gets re-pulled now,
+   * with a fresh retry budget, instead of on the next timer.
+   */
+  private readonly onOnline = (): void => {
+    if (!this.directoryFault) return;
+    this.directoryRetries = 0;
+    this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
+    void this.bootstrapDirectory();
+  };
+
+  /**
+   * A directory fault has just been recorded. Try again on the receiver's own,
+   * a bounded number of times, so a mirror that was down for a minute does not
+   * need a hand on RECONNECT to come back — and no more than that, so a
+   * directory that is really gone is not hammered for the life of the session.
+   */
+  private scheduleDirectoryRetry(): void {
+    window.clearTimeout(this.directoryRetryTimer);
+    const delay = DIRECTORY_RETRY_MS[this.directoryRetries];
+    if (delay === undefined) return; // budget spent: RECONNECT and REPRINT remain
+    this.directoryRetryTimer = window.setTimeout(() => {
+      if (!this.directoryFault || !this.bridge) return;
+      this.directoryRetries += 1;
+      void this.bootstrapDirectory();
+    }, delay);
+  }
+
+  /** The directory answered: the retry budget is whole again. */
+  private clearDirectoryRetry(): void {
+    window.clearTimeout(this.directoryRetryTimer);
+    this.directoryRetryTimer = 0;
+    this.directoryRetries = 0;
   }
 
   private async boot(): Promise<void> {
@@ -293,7 +354,6 @@ export class ReceiverHost implements FaceplateHost {
       // surfaces, because the register is genuinely unprintable *and* every
       // control on the panel is genuinely dead.
       this.setBrowse({
-        query: '',
         stations: [],
         loading: false,
         error: 'APP BRIDGE MISSING — RESTART THE APP',
@@ -321,11 +381,11 @@ export class ReceiverHost implements FaceplateHost {
     // restart threw away — the faceplate returned to `NO BAND CUT` with a locked
     // flywheel and a dead meter band, while the cards behind the lid still
     // remembered exactly what had been pulled.
-    this.cutToRestore = this.settings.cutStanding;
+    this.cutToRestore = this.settings.cutScope !== undefined;
     // Nothing has ever been cut and nothing is filed down: this is a first run,
     // and the drum is filled from the sheet the register is about to fetch.
-    this.openingCut = !this.settings.cutStanding && scopeIsEmpty(this.settings.scope);
-    this.restoreKey = supersetKey(this.settings.scope);
+    this.openingCut = !this.cutToRestore && scopeIsEmpty(this.settings.scope);
+    this.restoreKey = supersetKey(this.settings.cutScope ?? this.settings.scope);
     handle.setScope(this.settings.scope);
     handle.setCut(null, 0, false);
     handle.setPresets(this.memory.presets);
@@ -354,7 +414,50 @@ export class ReceiverHost implements FaceplateHost {
   /** The register's index, then the rows for the restored scope. Both may fail. */
   private async bootstrapDirectory(): Promise<void> {
     await this.loadIndex();
-    await this.refreshScope();
+    await Promise.all([this.refreshScope(), this.restoreDivergentCut()]);
+  }
+
+  /**
+   * The standing band was cut from a scope the register's cards no longer
+   * show — a card was pulled after the throw, and then the app was quit. The
+   * register's own fetch answers the cards; this one answers the throw. It is
+   * one extra round trip, made only in that case.
+   */
+  private async restoreDivergentCut(): Promise<void> {
+    const bridge = this.bridge;
+    const cutScope = this.settings.cutScope;
+    if (!bridge || !this.cutToRestore || !cutScope) return;
+    const key = supersetKey(cutScope);
+    if (key === supersetKey(this.settings.scope)) return; // the register's fetch carries it
+    const result = await bridge.directory.search(supersetQuery(cutScope, SCOPE_LIMIT) ?? { limit: IDLE_LIMIT });
+    if (!this.cutToRestore || key !== this.restoreKey) return;
+    // Failed: the flag stays armed and RECONNECT re-pulls, exactly as for the
+    // register's own fetch. `directoryFault` is already carrying the reason.
+    if (!result.ok) return;
+    this.restoreCut(key, result.value);
+    this.settleRestore(key);
+    this.settlePendingPower();
+  }
+
+  /**
+   * A definitive answer for `key` has landed, and whatever it could not put on
+   * the drum is not "still coming". Both warm-up flags are disarmed here.
+   *
+   * They used to stay armed when the directory answered with nothing — a term
+   * that matched no station, or a card pulled before the first list landed —
+   * and `warmingUp()` then held RADIO ON on `WARMING UP · PLAY STARTS ON ITS
+   * OWN` for ever, on every launch, with nothing on its way. A throw the
+   * directory can no longer satisfy is also forgotten on disk, so the next
+   * launch does not repeat the question; the cards stay where they were.
+   */
+  private settleRestore(key: string): void {
+    if (this.cutToRestore && key === this.restoreKey) {
+      this.cutToRestore = false;
+      this.patchSettings({ cutScope: undefined });
+    }
+    // The opening band is only ever the idle sheet; an answer to anything else
+    // means a card was pulled first and the receiver is no longer coming up.
+    this.openingCut = false;
   }
 
   /**
@@ -380,14 +483,11 @@ export class ReceiverHost implements FaceplateHost {
    * before the first fetch landed, these rows answer a different question and
    * re-deriving from them would put a band on the drum that nobody threw.
    */
-  private restoreCut(key: string): void {
+  private restoreCut(key: string, rows: readonly StationRef[]): void {
     if (!this.cutToRestore || key !== this.restoreKey) return;
-    const rows = this.browse.stations;
-    // No rows means the directory did not answer, or answered with nothing. Keep
-    // the flag: RECONNECT re-pulls, and the band comes back with the list.
-    if (rows.length === 0) return;
+    const scope = this.settings.cutScope;
+    if (!scope || rows.length === 0) return;
     this.cutToRestore = false;
-    const scope = this.settings.scope;
     const index = this.index;
     const view = computeView(rows, scope, index, RESTORE_SORT);
     if (view.rows.length === 0) return;
@@ -528,6 +628,8 @@ export class ReceiverHost implements FaceplateHost {
     document.removeEventListener('pointerdown', this.onFirstGesture, { capture: true });
     document.removeEventListener('keydown', this.onFirstGesture, { capture: true });
     window.removeEventListener('pagehide', this.onPageHide);
+    window.removeEventListener('online', this.onOnline);
+    window.clearTimeout(this.directoryRetryTimer);
     this.settingsWriter.flush();
     this.memoryWriter.flush();
     this.engine?.dispose();
@@ -702,6 +804,9 @@ export class ReceiverHost implements FaceplateHost {
     // meaningful, and it is only honest to send it once audio is really
     // flowing — not when someone merely clicked.
     const station = state.station;
+    if (station && this.noticeSubject !== undefined && this.noticeSubject !== station.id) {
+      this.clearNotice();
+    }
     if (state.phase === 'playing' && station && this.reportedStationId !== station.id) {
       this.reportedStationId = station.id;
       void this.bridge?.directory.reportListening(station.id);
@@ -795,14 +900,16 @@ export class ReceiverHost implements FaceplateHost {
    * Anything said here must name only controls that are on the current
    * faceplate. The genre selector is gone; nothing may mention it.
    */
-  private notify(spec: say.NoticeSpec): void {
+  private notify(spec: say.NoticeSpec, subject?: StationRef): void {
     this.notice = { ...spec, seq: ++this.noticeSeq };
+    this.noticeSubject = subject?.id;
     this.handle?.setNotice(this.notice);
     this.markDirty();
   }
 
   /** Take the message down. Called the moment the state it described is over. */
   private clearNotice(): void {
+    this.noticeSubject = undefined;
     if (!this.notice) return;
     this.notice = null;
     this.handle?.setNotice(null);
@@ -823,9 +930,14 @@ export class ReceiverHost implements FaceplateHost {
   private async loadIndex(): Promise<void> {
     const bridge = this.bridge;
     if (!bridge) return;
+    // REPRINT, RECONNECT and RADIO ON can each start a pull while another is in
+    // flight; without this the slower answer lands last and wins.
+    const generation = ++this.indexGeneration;
     const result = await bridge.directory.listIndex();
+    if (generation !== this.indexGeneration) return;
     if (!result.ok) {
       this.directoryFault = result.failure;
+      this.scheduleDirectoryRetry();
       this.index = null;
       this.indexFault = directoryFaultText(result.failure);
       this.handle?.setIndex(null, this.indexFault);
@@ -866,7 +978,7 @@ export class ReceiverHost implements FaceplateHost {
     // `loading: true` carries the PREVIOUS rows forward by design, so it carries
     // the previous key with them: the rows and their identity travel together on
     // every publish, without exception.
-    this.setBrowse({ query: '', stations: this.browse.stations, loading: true, key: this.browse.key });
+    this.setBrowse({ stations: this.browse.stations, loading: true, key: this.browse.key });
 
     const query = supersetQuery(scope, SCOPE_LIMIT) ?? { limit: IDLE_LIMIT };
     const result = await bridge.directory.search(query);
@@ -874,10 +986,10 @@ export class ReceiverHost implements FaceplateHost {
 
     if (!result.ok) {
       this.directoryFault = result.failure;
+      this.scheduleDirectoryRetry();
       // A fault is a settled answer to *this* question (Law 4), so it carries
       // this question's key and the register may print NOT PRINTED for it.
       this.setBrowse({
-        query: '',
         stations: [],
         loading: false,
         key,
@@ -888,11 +1000,15 @@ export class ReceiverHost implements FaceplateHost {
       this.settlePendingPower();
       return;
     }
-    this.directoryFault = null;
+    // Rows answered, but a failed index is still a directory fault: RECONNECT
+    // must go on re-pulling the edition, not only the sheet.
+    if (this.index) {
+      this.directoryFault = null;
+      this.clearDirectoryRetry();
+    }
     // Zero rows is a real answer, and the register prints NO ENTRY for it. It
     // is not a fault and must not be dressed as one.
     this.setBrowse({
-      query: '',
       stations: result.value,
       loading: false,
       key,
@@ -902,10 +1018,11 @@ export class ReceiverHost implements FaceplateHost {
     // place they arrive. Putting it here rather than in `bootstrapDirectory` is
     // what makes an offline launch recoverable: RECONNECT, or a REPRINT, or the
     // network simply coming back, all land here.
-    this.restoreCut(key);
+    this.restoreCut(key, result.value);
     // …and on a profile that has never cut anything, this is where the drum
     // gets its opening band. Same place, same rows, same reason.
     this.openingBand(key);
+    this.settleRestore(key);
     this.settlePendingPower();
   }
 
@@ -924,7 +1041,10 @@ export class ReceiverHost implements FaceplateHost {
     this.openingCut = false;
     // The throw tunes below, so a press that was waiting on a band is answered.
     this.powerPending = false;
-    this.patchSettings({ cutStanding: this.cut.bands.length > 0, cutBandIndex: 0 });
+    this.patchSettings({
+      cutScope: this.cut.bands.length > 0 ? { ...this.settings.scope } : undefined,
+      cutBandIndex: 0,
+    });
     this.markDirty();
 
     // The throw is a gesture, so it may start audio. The dial opens at the head
@@ -1088,9 +1208,21 @@ export class ReceiverHost implements FaceplateHost {
     // "is on" whichever station the layout happened to place near the middle —
     // which would silently outrank the station the listener was actually last
     // hearing. An untouched pointer is not a choice.
+    //
+    // `lastStation` is what was last *asked for*; the log is what was last
+    // *heard* (Law 2 applied to memory). A station that was asked for and never
+    // came up must not be the one the receiver switches on to after a relaunch:
+    // measured on the live directory, two FIP mounts refused this receiver,
+    // the app was quit on the second, and every RADIO ON afterwards went
+    // straight back to STATION FAILED. So the last intent is honoured only if
+    // it was heard; otherwise the last station that actually played is next.
+    const heard = (station: StationRef | undefined): StationRef | undefined =>
+      station && this.log.some((entry) => entry.station.id === station.id) ? station : undefined;
     const station =
       (this.dialTouched ? slotAt(this.band, this.dialPosition)?.station : undefined) ??
       engine.currentState.station ??
+      heard(this.memory.lastStation) ??
+      this.log[0]?.station ??
       this.memory.lastStation ??
       (this.dialTouched ? nearestSlot(this.band, this.dialPosition)?.station : undefined) ??
       this.band.slots[0]?.station;
@@ -1209,6 +1341,7 @@ export class ReceiverHost implements FaceplateHost {
 
   private onReprint(): void {
     this.onFirstGesture();
+    this.directoryRetries = 0;
     void this.bootstrapDirectory();
   }
 
@@ -1289,6 +1422,7 @@ export class ReceiverHost implements FaceplateHost {
     // RECONNECT is the panel's one recovery control, so it recovers whichever
     // thing is broken: the directory, the station, or both.
     if (this.directoryFault) {
+      this.directoryRetries = 0;
       this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
       void this.bootstrapDirectory();
     }
@@ -1315,7 +1449,7 @@ export class ReceiverHost implements FaceplateHost {
     this.retryPresses = this.retryOf === station.id ? this.retryPresses + 1 : 1;
     this.retryOf = station.id;
     this.lastFaultText = faulted ? this.state.error?.message : undefined;
-    this.notify(say.reconnecting(station, this.retryPresses, faulted));
+    this.notify(say.reconnecting(station, this.retryPresses, faulted), station);
     this.tuneStation(station);
   }
 
@@ -1344,6 +1478,7 @@ export class ReceiverHost implements FaceplateHost {
         // works.
         canRetry: error.kind !== 'hls',
       }),
+      station,
     );
     // Remember what this attempt said, so the *next* one can recognise a repeat.
     this.lastFaultText = error.message;

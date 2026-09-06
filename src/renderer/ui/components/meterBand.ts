@@ -48,6 +48,13 @@ export interface BandContext {
   registerVisible: boolean;
   /** The engine's own verdict on the one station in hand. Measured, per frame. */
   air: AirState;
+  /**
+   * The station list is still in flight. An empty drum during those seconds
+   * is "nothing here YET", and the plate used to say `PRESS STATIONS, PICK A
+   * SUBJECT` beside an annunciator saying `THE DIAL FILLS ON ITS OWN` — two
+   * instructions on one panel, one of them about to be wrong.
+   */
+  warming: boolean;
 }
 
 export interface MeterBandHandle {
@@ -56,7 +63,9 @@ export interface MeterBandHandle {
    * What the register cut. `filled` is how many meter bands actually carry
    * entries; `index` is the one currently printed on the drum.
    */
-  setCut(cut: { caption: string; quality: string; total: number; filled: number; index: number } | null): void;
+  setCut(
+    cut: { caption: string; quality: string; total: number; printed: number; filled: number; index: number } | null,
+  ): void;
   /** Tell the plate what the rest of the panel is doing, so its hint is true. */
   setContext(context: BandContext): void;
   /** Fire the plate's lamp-strike: a new band has just been cut. */
@@ -124,7 +133,7 @@ export function createMeterBand(onSelect: (index: number) => void): MeterBandHan
   let angle = 0;
   let accum = 0;
   let cutCaption: string | null = null;
-  let context: BandContext = { registerVisible: false, air: 'off' };
+  let context: BandContext = { registerVisible: false, air: 'off', warming: false };
   let inertTimer = 0;
 
   const applyAngle = (): void => {
@@ -318,7 +327,10 @@ export function createMeterBand(onSelect: (index: number) => void): MeterBandHan
       }
       cutCaption = cut ? cut.caption : null;
       setText(plateScope, cut ? cut.caption : 'NO BAND CUT');
-      setText(plateCount, cut ? `${cut.total} STN` : '');
+      // The drum holds 480; a wider scope was cut to its top 480 and the register
+      // said so before the throw. The plate must not then print the scope's
+      // size as though all of it were on the dial.
+      setText(plateCount, cut ? (cut.printed < cut.total ? `${cut.printed} OF ${cut.total} STN` : `${cut.total} STN`) : '');
       setText(plateQual, cut ? cut.quality : '');
       setText(plateBand, cut && filled ? (METER_BANDS[position]?.label.replace(/\s/g, '') ?? '—') : '—');
       setFlag(plateWindow, 'is-uncut', !cut);
@@ -383,6 +395,7 @@ export function bandHint(context: BandContext, hasCut: boolean): string {
       return 'THAT STATION FAILED — PRESS RECONNECT, OR CUT A BAND FOR MORE';
     case 'off':
     default:
+      if (context.warming) return 'STATION LIST COMING IN — THE DIAL FILLS ON ITS OWN';
       return context.registerVisible
         ? 'IN THE REGISTER ABOVE: PICK A SUBJECT, THEN THROW CUT BAND'
         : 'PRESS STATIONS, PICK A SUBJECT, THEN THROW CUT BAND';

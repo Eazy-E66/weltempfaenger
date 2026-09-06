@@ -21,9 +21,8 @@ import type {
   Preset,
   RegisterIndex,
   Settings,
-  StationRef,
 } from '../../shared/contracts';
-import { EMPTY_SCOPE, INITIAL_PLAYBACK_STATE, DEFAULT_SETTINGS } from '../../shared/contracts';
+import { INITIAL_PLAYBACK_STATE, DEFAULT_SETTINGS } from '../../shared/contracts';
 import type { BrowseResults, FaceplateHandle, FaceplateHandlers, PanelNotice } from './types';
 import { PHASE_LABEL, airStateOf, isPowered } from './types';
 import { clamp, el, setAttr, setFlag, setText, silk } from './dom';
@@ -186,6 +185,8 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
   let cut: Cut | null = null;
   let cutBandIndex = 0;
   let lidOpen = false;
+  /** The host's own list fetch is in flight — the plate's "not yet". */
+  let browseLoading = false;
   /** True while the annunciator is carrying a message. Drives the REGISTER lamp. */
   let noticeUp = false;
   /** Set while pushing host state into controls, so they do not echo back. */
@@ -1002,6 +1003,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       // Measured. This used to be `isPowered(state) && !!state.station`, which
       // is "a station has been asked for" — see `airStateOf`.
       air: state.station ? airStateOf(state) : 'off',
+      warming: browseLoading,
     });
   }
 
@@ -1203,6 +1205,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
               caption: cut.caption,
               quality: cut.quality,
               total: cut.total,
+              printed: cut.printed,
               filled: cut.bands.length,
               index: cutBandIndex,
             }
@@ -1230,6 +1233,10 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
     },
 
     setBrowseResults(next: BrowseResults) {
+      if (browseLoading !== next.loading) {
+        browseLoading = next.loading;
+        pushBandContext();
+      }
       lid.setRows(next.stations, {
         loading: next.loading,
         key: next.key,
@@ -1272,27 +1279,5 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       lid.destroy();
       shell.remove();
     },
-  };
-}
-
-/** Convenience for hosts that keep a station list rather than a Band. */
-export function stationsToBand(
-  genre: string,
-  stations: StationRef[],
-  scale: { min: number; max: number; unit: 'MHz' | 'kHz' },
-): Band {
-  const sorted = [...stations].sort((a, b) => b.popularity - a.popularity);
-  const n = Math.max(1, sorted.length);
-  return {
-    genre,
-    stationCount: stations.length,
-    scaleMin: scale.min,
-    scaleMax: scale.max,
-    scaleUnit: scale.unit,
-    slots: sorted.map((station, i) => ({
-      station,
-      position: clamp((i + 0.5) / n, 0.01, 0.99),
-      width: clamp(0.004 + station.popularity * 0.012, 0.004, 0.02),
-    })),
   };
 }
