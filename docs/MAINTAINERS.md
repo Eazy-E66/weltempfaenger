@@ -176,11 +176,20 @@ run the app against the rig and provoke the failure you are reasoning about.
 ### Reading a fault on the panel
 
 - **Annunciator** (the strip under the readout): host notices — directory
-  faults, station faults, what to press. Composed in `host/notices.ts`.
-- **Readout badge** (`LOCKED`, `SIGNAL LOST`, `FAULT` …): the engine's phase,
-  qualified by the meter. `signalLoss` says *why* a stall is a stall:
-  `flow-stopped` (bytes stopped), `detuned` (your dial), `dead-air` (station
-  sends silence), `undecodable` (bytes arrive, nothing decodes).
+  faults, station faults, what to press. Composed in `host/notices.ts`;
+  directory faults in `host/faults.ts`, which say RETRYING ON ITS OWN while
+  the host's bounded re-pull is still running and PRESS RECONNECT once it
+  has stopped. One line, no wrapping: keep sentences short enough that the
+  key to press survives at 860 px.
+- **Readout badge**: the engine's phase in the listener's words — `STANDBY`,
+  `TUNING` (resolving or connecting), `BUFFERING`, `LOCKED` (playing),
+  `RE-LOCKING` (AFC), `FAULT` with a short reason. A stall is named by its
+  cause, from `signalLoss`: `SIGNAL LOST` (`flow-stopped`, bytes stopped),
+  `OFF STATION` (`detuned`, the listener's own dial — standby ink, RECONNECT
+  dark), `DEAD AIR` (station sends silence), `NOT DECODING` (`undecodable`,
+  bytes arrive, nothing plays). `describePhase` in
+  `ui/components/readout.ts` is the one composer; the screen-reader line
+  uses it too.
 - **Register fault strip**: the same verdict in prose, from the same composer
   (`stalledWords` in `ui/components/readout.ts`).
 - If a sentence on the panel looks wrong, the measurement it came from is in
