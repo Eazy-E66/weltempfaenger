@@ -1919,3 +1919,35 @@ describe('what a directory fault asks of the listener', () => {
     expect(sheetError()).not.toMatch(/RETRYING ON ITS OWN/);
   });
 });
+
+describe('the NAME slot across a relaunch', () => {
+  it('is not written to disk, so a station-name search cannot hide the opening band next time', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted((b) => {
+      b.answer = () => hot;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onScope({ ...EMPTY_SCOPE, text: 'bbc' });
+    r.host.handlers.onSetVolume(0.4); // any write
+    await vi.advanceTimersByTimeAsync(900);
+    expect(r.bridge.onDisk.volume).toBe(0.4);
+    expect(r.bridge.onDisk.scope.text).toBeUndefined();
+  });
+
+  it('ignores a search an older file carried, and cuts the opening band', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted(
+      (b) => {
+        b.answer = (q) => (q.text ? [] : hot);
+      },
+      (b) => {
+        b.onDisk = { ...DEFAULT_SETTINGS, scope: { ...EMPTY_SCOPE, text: 'bbc' }, cutBandIndex: 0 };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.bridge.queries[0]).toEqual({ limit: 2000 });
+    expect(r.bands.at(-1)!.slots.length).toBeGreaterThan(0);
+  });
+});

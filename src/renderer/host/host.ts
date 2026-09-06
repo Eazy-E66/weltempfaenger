@@ -370,7 +370,9 @@ export class ReceiverHost implements FaceplateHost {
 
     // --- persisted state ---------------------------------------------------
     try {
-      this.settings = await this.bridge.settings.load();
+      const loaded = await this.bridge.settings.load();
+      // Files written before the NAME slot stopped persisting may carry one.
+      this.settings = { ...loaded, scope: { ...loaded.scope, text: undefined } };
     } catch {
       this.settings = { ...DEFAULT_SETTINGS };
     }
@@ -1151,7 +1153,14 @@ export class ReceiverHost implements FaceplateHost {
   private patchSettings(patch: Partial<Settings>): void {
     this.settings = { ...this.settings, ...patch };
     this.engine?.setSettings(patch);
-    this.settingsWriter.queue(this.settings);
+    // The NAME slot is a find, not a filing. Persisting it put a station-name
+    // search back on the register at the next launch — and, because a scope
+    // with text in it is not the idle scope, the opening band never came: the
+    // receiver that had a full dial yesterday came up on NO BAND CUT because
+    // its owner had once typed a station name. The cards persist; the search
+    // does not. (A throw made from a search keeps its text in `cutScope`,
+    // which is the throw's own record.)
+    this.settingsWriter.queue({ ...this.settings, scope: { ...this.settings.scope, text: undefined } });
     this.markDirty();
   }
 
