@@ -706,7 +706,10 @@ export class RadioBrowserProvider implements DirectoryProvider {
 
     if (spellings.length <= 1) {
       const single = spellings.length === 1 ? { ...query, genre: spellings[0]! } : query;
-      return mapStations(await this.searchPage(single, opts?.signal));
+      // One page, still merged: `mergeTagResults` is also the de-duplication on
+      // `stationuuid`, and a single page is not guaranteed unique — a
+      // duplicated row printed the same station twice on the drum.
+      return mapStations(mergeTagResults([await this.searchPage(single, opts?.signal)]));
     }
 
     const settled = await Promise.allSettled(

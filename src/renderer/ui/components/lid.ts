@@ -442,12 +442,22 @@ export function createLid(
   let deck = 0;
   let len = 620;
 
-  const latchL = el('button', { class: 'lip__latch', type: 'button', 'aria-label': 'Open the register' }, [
-    el('span', { class: 'lip__latch-grip' }),
-  ]);
-  const latchR = el('button', { class: 'lip__latch', type: 'button', 'aria-label': 'Open the register' }, [
-    el('span', { class: 'lip__latch-grip' }),
-  ]);
+  // The latches and the plate are pointer affordances for the one thing the
+  // STATIONS key already does from the keyboard. In the tab ring they were
+  // four identical stops — "Open the register" twice before BASS, twice after
+  // RECONNECT — for one action; a keyboard user reaches the register through
+  // STATIONS, `/` or Ctrl+K, and closes it with Escape. Pointer-clickable
+  // still, named still, and skipped by Tab.
+  const latchL = el(
+    'button',
+    { class: 'lip__latch', type: 'button', tabindex: '-1', 'aria-label': 'Open the register' },
+    [el('span', { class: 'lip__latch-grip' })],
+  );
+  const latchR = el(
+    'button',
+    { class: 'lip__latch', type: 'button', tabindex: '-1', 'aria-label': 'Open the register' },
+    [el('span', { class: 'lip__latch-grip' })],
+  );
 
   /**
    * The bar between the two latches — and the drawer's handle, not a caption.
@@ -668,6 +678,7 @@ export function createLid(
   const hit = el('button', {
     class: 'lid__hit',
     type: 'button',
+    tabindex: '-1',
     'aria-label': 'Open the world station register',
   }, [
     el('span', { class: 'lid__hit-cue' }, [
@@ -1201,8 +1212,7 @@ export function createLid(
          and a Tab ring that steps out onto the chassis in the middle of a
          drawn-out sheet is the same defect as one that steps onto the
          faceplate. Escape and CLOSE LID are the keyboard's ways out. */
-      setAttr(latchL, 'tabindex', open ? '-1' : '0');
-      setAttr(latchR, 'tabindex', open ? '-1' : '0');
+      // Out of the ring in both states; see the note where they are built.
       sealNow();
 
       window.clearTimeout(swingTimer);

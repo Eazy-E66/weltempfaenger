@@ -82,7 +82,7 @@ describe('the renderer’s half of a proxy session', () => {
     expect(drops).toHaveLength(1);
     const [message, raw] = drops[0]!;
     // The sentence keeps its shape, so nothing downstream of it changes.
-    expect(message).toBe(`upstream closed: ${REASON}`);
+    expect(message).toBe(REASON);
     // And the second argument, which used to be `undefined` on every call this
     // class ever made, is now the socket's own text.
     expect(raw).toBe(RAW);

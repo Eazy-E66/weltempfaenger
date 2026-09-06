@@ -497,7 +497,7 @@ describe('what the lid does to the surface underneath it', () => {
     expect(settled).toEqual([true, false]);
   });
 
-  it('takes the case latches out of the Tab ring while the sheet is out, but leaves them clickable', async () => {
+  it('keeps the case latches out of the Tab ring in both states, but leaves them clickable', async () => {
     let toggles = 0;
     lid = createLid({
       onToggle: () => {
@@ -510,13 +510,15 @@ describe('what the lid does to the surface underneath it', () => {
     });
     document.body.append(lid.lip, lid.root);
     const latch = lid.lip.querySelector('.lip__latch') as HTMLElement;
-    expect(latch.getAttribute('tabindex')).not.toBe('-1');
+    // A pointer affordance for what the STATIONS key already does from the
+    // keyboard: four identical Tab stops for one action was the finding.
+    expect(latch.getAttribute('tabindex')).toBe('-1');
     lid.setOpen(true);
     expect(latch.getAttribute('tabindex')).toBe('-1');
     latch.click();
     expect(toggles).toBe(1);
     lid.setOpen(false);
-    expect(latch.getAttribute('tabindex')).toBe('0');
+    expect(latch.getAttribute('tabindex')).toBe('-1');
     await sleep(LANDED);
   });
 

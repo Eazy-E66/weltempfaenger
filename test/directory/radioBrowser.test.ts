@@ -632,3 +632,26 @@ describe('expanding a folded group back into the queries the directory understan
     await expect(p.search({ genre: 'trip-hop', limit: 50 })).rejects.toBeInstanceOf(DirectoryError);
   });
 });
+
+describe('a single page that repeats a station', () => {
+  it('is de-duplicated on stationuuid like a merged one, so the drum never carries a station twice', async () => {
+    const row = {
+      stationuuid: 'dup-1',
+      name: 'Twice',
+      url: 'http://stream.example.invalid/twice',
+      tags: 'jazz',
+      countrycode: 'DE',
+      votes: 1,
+      clickcount: 1,
+    };
+    const p = new RadioBrowserProvider({
+      mirrors: ['http://directory.invalid'],
+      fetchImpl: async () =>
+        new Response(JSON.stringify([row, { ...row }, { ...row, stationuuid: 'other' }]), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    });
+    const rows = await p.search({ limit: 50 });
+    expect(rows.map((r) => r.id)).toEqual(['dup-1', 'other']);
+  });
+});

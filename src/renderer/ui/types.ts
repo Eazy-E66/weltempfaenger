@@ -274,8 +274,8 @@ export function airStateOf(state: PlaybackState): AirState {
 /** Human label for the phase, as silkscreened on the status strip. */
 export const PHASE_LABEL: Record<PlaybackState['phase'], string> = {
   idle: 'STANDBY',
-  resolving: 'RESOLVING',
-  connecting: 'CONNECTING',
+  resolving: 'TUNING',
+  connecting: 'TUNING',
   buffering: 'BUFFERING',
   playing: 'LOCKED',
   stalled: 'SIGNAL LOST',

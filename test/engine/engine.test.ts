@@ -357,7 +357,7 @@ describe('the candidate list', () => {
     }
     const state = deck.engine.currentState;
     expect(state.phase).toBe('error');
-    expect(state.error?.message).toContain('2 mounts');
+    expect(state.error?.message).toContain('2 addresses');
     expect(state.error?.message).not.toMatch(JARGON);
   });
 

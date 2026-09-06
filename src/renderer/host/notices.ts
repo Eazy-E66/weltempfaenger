@@ -124,7 +124,7 @@ export function reconnecting(station: StationRef, press: number, nextMount: bool
   return {
     headline: `RECONNECTING${nth}`,
     action: nextMount
-      ? `TRYING THE NEXT MOUNT FOR ${shout(station.name)}. PRESS RECONNECT AGAIN TO WALK ON.`
+      ? `TRYING ${shout(station.name)} AGAIN. IF IT KEEPS FAILING, TUNE ANOTHER STATION.`
       : `RE-OPENING THE STREAM FOR ${shout(station.name)}.`,
     tone: 'advice',
   };

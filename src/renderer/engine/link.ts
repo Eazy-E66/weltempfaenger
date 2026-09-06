@@ -119,7 +119,7 @@ export class ProxyLink {
     this.lastEvent = event;
     if (event.kind === 'closed' && event.graceful !== true) {
       this.dropped = true;
-      this.handlers.dropped(`upstream closed: ${event.message ?? 'unknown reason'}`, event.detail);
+      this.handlers.dropped(event.message ?? 'the station stopped sending', event.detail);
     }
     this.handlers.changed();
   }

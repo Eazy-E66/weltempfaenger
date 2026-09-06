@@ -75,18 +75,23 @@ export function sheetSafe(results: BrowseResults): BrowseResults {
  * `DirectoryErrorKind` to arrive on the panel as a Node error string. A new kind
  * now stops the build here instead, which is where the decision belongs.
  */
-export function directoryFaultText(failure: DirectoryFailure): string {
+export function directoryFaultText(failure: DirectoryFailure, retrying = false): string {
+  // The remedy is stated with the degree of agency it actually needs: while
+  // the receiver is still re-pulling on its own, nothing is asked of a hand;
+  // once its budget is spent, the key that helps is named. "Mirror" was the
+  // directory's own word for its servers and meant nothing on a faceplate.
+  const remedy = retrying ? 'RETRYING ON ITS OWN' : 'PRESS RECONNECT TO RETRY';
   switch (failure.kind) {
     case 'network':
-      return 'NO ROUTE — RECONNECT TO RETRY';
+      return `THE DIRECTORY CANNOT BE REACHED — ${remedy}`;
     case 'timeout':
-      return 'NO ANSWER IN TIME — RECONNECT';
+      return `THE DIRECTORY DID NOT ANSWER — ${remedy}`;
     case 'http':
-      return `MIRROR REFUSED${failure.status ? ` (HTTP ${failure.status})` : ''} — RECONNECT`;
+      return `THE DIRECTORY REFUSED${failure.status ? ` (HTTP ${failure.status})` : ''} — ${remedy}`;
     case 'malformed':
-      return 'MIRROR UNREADABLE — RECONNECT';
+      return `THE DIRECTORY SENT AN UNREADABLE LIST — ${remedy}`;
     case 'no-mirror':
-      return 'NO MIRROR REACHABLE — RECONNECT';
+      return `NO DIRECTORY SERVER FOUND — ${remedy}`;
   }
 }
 

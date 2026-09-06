@@ -341,7 +341,13 @@ export function createMeterBand(onSelect: (index: number) => void): MeterBandHan
     },
 
     setContext(next) {
-      if (next.registerVisible === context.registerVisible && next.air === context.air) return;
+      if (
+        next.registerVisible === context.registerVisible &&
+        next.air === context.air &&
+        next.warming === context.warming
+      ) {
+        return;
+      }
       context = next;
       if (!plateHint.classList.contains('is-refused')) paintHint();
     },

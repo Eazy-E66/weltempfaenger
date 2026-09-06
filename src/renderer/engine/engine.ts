@@ -567,8 +567,8 @@ export class PlaybackEngine {
   private exhaustedText(): string {
     const mounts = this.candidates.length;
     return mounts > 1
-      ? `all ${mounts} mounts failed, ${this.afc.budget} attempts each`
-      : `AFC gave up after ${this.afc.attempts} attempts`;
+      ? `gave up after ${this.afc.budget} tries on each of ${mounts} addresses`
+      : `gave up after ${this.afc.attempts} tries`;
   }
 
   /**

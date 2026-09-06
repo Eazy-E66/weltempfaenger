@@ -24,7 +24,7 @@ import type {
 } from '../../shared/contracts';
 import { INITIAL_PLAYBACK_STATE, DEFAULT_SETTINGS } from '../../shared/contracts';
 import type { BrowseResults, FaceplateHandle, FaceplateHandlers, PanelNotice } from './types';
-import { PHASE_LABEL, airStateOf, isPowered } from './types';
+import { airStateOf, isPowered } from './types';
 import { clamp, el, setAttr, setFlag, setText, silk } from './dom';
 import { installTextureDefs, textureLayer } from './textures';
 import { installMaterials, mountBezel, mountDust, mountHandle, mountScrew, mountWear, paintPowerDome } from './materials';
@@ -34,7 +34,7 @@ import { createMeterBand } from './components/meterBand';
 import { createTuningKnob } from './components/tuningKnob';
 import { createDrumDial } from './components/drumDial';
 import { createMeter } from './components/meter';
-import { createReadout } from './components/readout';
+import { createReadout, describePhase } from './components/readout';
 import {
   createButton,
   createGrille,
@@ -508,7 +508,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
         bufferSel.root,
         bandPlan,
         el('div', { class: 'sw-group sw-group--btns' }, [
-          el('span', { class: 'silk silk--teal silk-rule' }, ['Light / Recovery / Index']),
+          el('span', { class: 'silk silk--teal silk-rule' }, ['Lamp / Recovery / Register']),
           el('div', { class: 'sw-btns' }, [lightBtn.root, reconnectBtn.root, registerBtn.root]),
         ]),
       ]),
@@ -970,7 +970,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
   // -------------------------------------------------------------------------
   // Render
 
-  let lastPhase: PlaybackState['phase'] | null = null;
+  let lastLive = '';
   let lastBandKey = '';
   /**
    * The station the drum was last wound to on the host's behalf.
@@ -1079,8 +1079,11 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       readout.update(state);
       presetBank.update(presets, state.station?.id, powered);
 
-      // The fault lamp is red because the engine said 'error' or 'stalled'.
-      const faulted = state.phase === 'error' || state.phase === 'stalled';
+      // The fault lamp is red because the engine said 'error' or 'stalled' —
+      // except the stall that is the listener's own dial between stations,
+      // which RECONNECT cannot fix and must not be lit for.
+      const faulted =
+        state.phase === 'error' || (state.phase === 'stalled' && state.signalLoss !== 'detuned');
       reconnectLamp.set(faulted || state.phase === 'reconnecting', state.phase === 'reconnecting');
 
       /* --- the drum winds to the host's station, ONCE, WHEN IT CHANGES ---
@@ -1143,14 +1146,15 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       pushBandContext();
       paintRegisterLamp();
 
-      if (state.phase !== lastPhase) {
-        lastPhase = state.phase;
-        setText(
-          phaseLive,
-          `${PHASE_LABEL[state.phase]}${state.station ? `. ${state.station.name}` : ''}${
-            state.error ? `. ${state.error.message}` : ''
-          }`,
-        );
+      // The same words the badge prints, so a screen reader is told OFF
+      // STATION where a sighted listener reads OFF STATION — not the raw phase
+      // name, which said SIGNAL LOST for the listener's own detuned dial.
+      const live = `${describePhase(state, 0).label}${state.station ? `. ${state.station.name}` : ''}${
+        state.error ? `. ${state.error.message}` : ''
+      }`;
+      if (live !== lastLive) {
+        lastLive = live;
+        setText(phaseLive, live);
       }
     } finally {
       applying = false;

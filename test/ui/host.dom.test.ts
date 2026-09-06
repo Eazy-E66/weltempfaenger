@@ -1900,3 +1900,54 @@ describe('RADIO ON after a relaunch', () => {
     expect(r.states.at(-1)!.station?.id).toBe('asked');
   });
 });
+
+describe('what a directory fault asks of the listener', () => {
+  it('asks nothing while the receiver is still re-pulling on its own, and names RECONNECT once it has stopped', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.frame().count).toBe('NOT PRINTED');
+    const sheetError = () => r.register.root.querySelector('.sheet__empty span')?.textContent ?? '';
+    expect(sheetError()).toMatch(/RETRYING ON ITS OWN/);
+    expect(sheetError()).not.toMatch(/PRESS RECONNECT/);
+    // 15 + 30 + 60 + 120 s: the budget is spent and the wording changes with it.
+    await vi.advanceTimersByTimeAsync(230_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    expect(sheetError()).toMatch(/PRESS RECONNECT/);
+    expect(sheetError()).not.toMatch(/RETRYING ON ITS OWN/);
+  });
+});
+
+describe('the NAME slot across a relaunch', () => {
+  it('is not written to disk, so a station-name search cannot hide the opening band next time', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted((b) => {
+      b.answer = () => hot;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onScope({ ...EMPTY_SCOPE, text: 'bbc' });
+    r.host.handlers.onSetVolume(0.4); // any write
+    await vi.advanceTimersByTimeAsync(900);
+    expect(r.bridge.onDisk.volume).toBe(0.4);
+    expect(r.bridge.onDisk.scope.text).toBeUndefined();
+  });
+
+  it('ignores a search an older file carried, and cuts the opening band', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted(
+      (b) => {
+        b.answer = (q) => (q.text ? [] : hot);
+      },
+      (b) => {
+        b.onDisk = { ...DEFAULT_SETTINGS, scope: { ...EMPTY_SCOPE, text: 'bbc' }, cutBandIndex: 0 };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.bridge.queries[0]).toEqual({ limit: 2000 });
+    expect(r.bands.at(-1)!.slots.length).toBeGreaterThan(0);
+  });
+});
