@@ -1900,3 +1900,22 @@ describe('RADIO ON after a relaunch', () => {
     expect(r.states.at(-1)!.station?.id).toBe('asked');
   });
 });
+
+describe('what a directory fault asks of the listener', () => {
+  it('asks nothing while the receiver is still re-pulling on its own, and names RECONNECT once it has stopped', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.frame().count).toBe('NOT PRINTED');
+    const sheetError = () => r.register.root.querySelector('.sheet__empty span')?.textContent ?? '';
+    expect(sheetError()).toMatch(/RETRYING ON ITS OWN/);
+    expect(sheetError()).not.toMatch(/PRESS RECONNECT/);
+    // 15 + 30 + 60 + 120 s: the budget is spent and the wording changes with it.
+    await vi.advanceTimersByTimeAsync(230_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    expect(sheetError()).toMatch(/PRESS RECONNECT/);
+    expect(sheetError()).not.toMatch(/RETRYING ON ITS OWN/);
+  });
+});

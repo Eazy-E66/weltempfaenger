@@ -310,7 +310,7 @@ export class ReceiverHost implements FaceplateHost {
   private readonly onOnline = (): void => {
     if (!this.directoryFault) return;
     this.directoryRetries = 0;
-    this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
+    this.notify(say.repullingDirectory(this.faultText(this.directoryFault)));
     void this.bootstrapDirectory();
   };
 
@@ -329,6 +329,11 @@ export class ReceiverHost implements FaceplateHost {
       this.directoryRetries += 1;
       void this.bootstrapDirectory();
     }, delay);
+  }
+
+  /** The fault in words, with the remedy the receiver's own retries leave for a hand. */
+  private faultText(failure: DirectoryFailure): string {
+    return directoryFaultText(failure, DIRECTORY_RETRY_MS[this.directoryRetries] !== undefined);
   }
 
   /** The directory answered: the retry budget is whole again. */
@@ -595,7 +600,7 @@ export class ReceiverHost implements FaceplateHost {
       const registerOpen = this.handle?.isLidOpen() ?? false;
       this.notify(
         this.directoryFault
-          ? say.nothingToPlay({ directoryFault: directoryFaultText(this.directoryFault), registerOpen })
+          ? say.nothingToPlay({ directoryFault: this.faultText(this.directoryFault), registerOpen })
           : say.nothingToPlay({ registerOpen }),
       );
       return;
@@ -939,7 +944,7 @@ export class ReceiverHost implements FaceplateHost {
       this.directoryFault = result.failure;
       this.scheduleDirectoryRetry();
       this.index = null;
-      this.indexFault = directoryFaultText(result.failure);
+      this.indexFault = this.faultText(result.failure);
       this.handle?.setIndex(null, this.indexFault);
       // The register says it on its own colophon, but the register is behind a
       // lid: the panel has to carry it too, or a first run with no network is a
@@ -993,7 +998,7 @@ export class ReceiverHost implements FaceplateHost {
         stations: [],
         loading: false,
         key,
-        error: directoryFaultText(result.failure),
+        error: this.faultText(result.failure),
       });
       // A settled answer, even though it is a bad one: a press that was waiting
       // on this list has to be told, or WARMING UP stands for ever.
@@ -1237,7 +1242,7 @@ export class ReceiverHost implements FaceplateHost {
         // The press stands: this re-pulls the directory, and if the list comes
         // back the receiver switches on to it without a second press.
         this.powerPending = true;
-        this.notify(say.nothingToPlay({ directoryFault: directoryFaultText(this.directoryFault), registerOpen: true }));
+        this.notify(say.nothingToPlay({ directoryFault: this.faultText(this.directoryFault), registerOpen: true }));
         void this.bootstrapDirectory();
         return;
       }
@@ -1423,7 +1428,7 @@ export class ReceiverHost implements FaceplateHost {
     // thing is broken: the directory, the station, or both.
     if (this.directoryFault) {
       this.directoryRetries = 0;
-      this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
+      this.notify(say.repullingDirectory(this.faultText(this.directoryFault)));
       void this.bootstrapDirectory();
     }
 
@@ -1476,7 +1481,7 @@ export class ReceiverHost implements FaceplateHost {
         // HLS is the one fault another mount cannot fix: Chromium has no demuxer
         // for it, so offering RECONNECT here would teach that RECONNECT never
         // works.
-        canRetry: error.kind !== 'hls',
+        canRetry: error.kind !== 'hls' && error.kind !== 'not-audio',
       }),
       station,
     );

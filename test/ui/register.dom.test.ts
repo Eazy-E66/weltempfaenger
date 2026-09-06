@@ -204,7 +204,7 @@ describe('a card pull, polled the way the critic polled it', () => {
       expect(f.count, at).toBe('PRINTING…');
       expect(f.count, at).not.toBe('223 ENTRIES');
       expect(f.combs, at).toEqual(['—', '—', '—']);
-      expect(f.cut, at).toBe('NOTHING TO CUT');
+      expect(f.cut, at).toBe('PRINTING…');
       expect(f.bands, at).toBe('PRINTING…');
       expect(f.cutDead, at).toBe(true);
     }
@@ -216,7 +216,7 @@ describe('a card pull, polled the way the critic polled it', () => {
     (rig.root.querySelectorAll('.comb--subject .comb__tab')[0] as HTMLButtonElement).click();
     // No awaits, no timers, no rAF: read it right back.
     expect(rig.text('.sheet__count')).toBe('PRINTING…');
-    expect(rig.text('.cut__sub')).toBe('NOTHING TO CUT');
+    expect(rig.text('.cut__sub')).toBe('PRINTING…');
   });
 
   it('will not cut a band while it does not know the population', () => {
@@ -289,7 +289,7 @@ describe('a card pull, polled the way the critic polled it', () => {
     rig = mount();
     rig.handle.setIndex(index, null);
     expect(rig.text('.sheet__count')).toBe('PRINTING…');
-    expect(rig.text('.cut__sub')).toBe('NOTHING TO CUT');
+    expect(rig.text('.cut__sub')).toBe('PRINTING…');
   });
 });
 
@@ -621,7 +621,7 @@ describe('rows that answer a scope which is no longer on the page', () => {
     expect(f.scope).toBe('ON AIR NOW · MOST LISTENED');
     expect(f.count).toBe('PRINTING…');
     expect(f.count).not.toBe('5 629 ENTRIES');
-    expect(f.cut).toBe('NOTHING TO CUT');
+    expect(f.cut).toBe('PRINTING…');
     expect(f.combs).toEqual(['—', '—', '—']);
     expect(f.cutDead).toBe(true);
   });

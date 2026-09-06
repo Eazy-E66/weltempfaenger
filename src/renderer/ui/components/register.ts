@@ -2496,7 +2496,9 @@ export function createRegister(handlers: RegisterHandlers): RegisterHandle {
     // none` means no `pointerup` will ever arrive to end a drag in flight.
     if (n === 0) dragEnd(false);
     if (n === 0) {
-      setText(cutSub, 'NOTHING TO CUT');
+      // While the rows are still coming the paddle is dead for the same reason,
+      // but "nothing to cut" is a verdict and this is not one yet.
+      setText(cutSub, printing ? 'PRINTING…' : 'NOTHING TO CUT');
     } else if (n > DRUM_CAPACITY) {
       setText(
         cutSub,

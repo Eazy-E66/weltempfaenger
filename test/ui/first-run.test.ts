@@ -408,7 +408,7 @@ describe('the phase badge agrees with the needle', () => {
   it('takes the engine at its word the moment it names the cause', () => {
     const flow = describePhase(playing({ signalLevel: 0, signalLoss: 'flow-stopped' }), 0);
     expect(flow.label).toBe('NO AUDIO');
-    expect(flow.detail).toContain('BYTES STOPPED');
+    expect(flow.detail).toContain('STOPPED SENDING');
 
     const detuned = describePhase(playing({ signalLevel: 0, signalLoss: 'detuned' }), 0);
     expect(detuned.detail).toContain('BETWEEN STATIONS');
@@ -426,13 +426,13 @@ describe('the phase badge agrees with the needle', () => {
         { ...INITIAL_PLAYBACK_STATE, phase: 'stalled', bytesReceived: 850_000, ...(loss ? { signalLoss: loss } : {}) },
         0,
       ).detail;
-    expect(stalled('detuned')).toContain('OFF STATION');
+    expect(stalled('detuned')).toContain('BETWEEN STATIONS');
     expect(stalled('detuned')).not.toContain('FLOW STOPPED');
-    expect(stalled('dead-air')).toContain('NO PROGRAMME');
+    expect(stalled('dead-air')).toContain('SILENCE');
     expect(stalled('dead-air')).not.toContain('FLOW STOPPED');
-    expect(stalled('flow-stopped')).toContain('FLOW STOPPED');
+    expect(stalled('flow-stopped')).toContain('STOPPED SENDING');
     // No verdict from the engine: the observable fact is that flow stopped.
-    expect(stalled()).toContain('FLOW STOPPED');
+    expect(stalled()).toContain('STOPPED SENDING');
   });
 
   it('leaves every other phase exactly as it was', () => {
