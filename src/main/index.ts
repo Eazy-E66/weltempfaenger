@@ -57,8 +57,22 @@ const proxy = new ProxyServer();
  * and must not be reachable from the shipping UI, because a fixture that looked
  * like a real tune-in would break Law 2's corollary.
  */
+/**
+ * `PSPPCPR_DIRECTORY_MIRRORS` pins the directory to an explicit, comma-separated
+ * list of base URLs and skips mirror discovery. It exists for one job: pointing
+ * the real app at a local stand-in directory so failure modes (5xx, 429,
+ * malformed bodies, a directory that vanishes and returns) can be produced on
+ * demand rather than waited for. Paired with `PSPPCPR_PROXY_ALLOW_PRIVATE=1`
+ * the whole product runs against loopback. Unset in every shipped launch.
+ */
+const pinnedMirrors = (process.env.PSPPCPR_DIRECTORY_MIRRORS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const directory = new RadioBrowserProvider({
   userAgent: `Weltempfaenger/${app.getVersion()}`,
+  ...(pinnedMirrors.length > 0 ? { mirrors: pinnedMirrors } : {}),
 });
 const resolver = new HttpStreamResolver();
 
@@ -117,7 +131,7 @@ function loadSettings(): Settings {
 function coerceSettings(raw: Partial<Settings>): Settings {
   const num = (v: unknown, lo: number, hi: number, fallback: number): number =>
     typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
-  return {
+  const settings: Settings = {
     volume: num(raw.volume, 0, 1, DEFAULT_SETTINGS.volume),
     bassDb: num(raw.bassDb, -12, 12, DEFAULT_SETTINGS.bassDb),
     trebleDb: num(raw.trebleDb, -12, 12, DEFAULT_SETTINGS.trebleDb),
@@ -127,13 +141,23 @@ function coerceSettings(raw: Partial<Settings>): Settings {
     dialLampOn: typeof raw.dialLampOn === 'boolean' ? raw.dialLampOn : DEFAULT_SETTINGS.dialLampOn,
     lastStationId: typeof raw.lastStationId === 'string' ? raw.lastStationId : undefined,
     scope: coerceScope(raw.scope),
-    // The visible half of the register's throw. Persisting `scope` without this
-    // restored the cards and dropped the band: relaunching put `NO BAND CUT`
-    // back on the faceplate with a locked flywheel, having faithfully remembered
-    // the part of the state nobody can see.
-    cutStanding: raw.cutStanding === true,
     cutBandIndex: Math.floor(num(raw.cutBandIndex, 0, 11, DEFAULT_SETTINGS.cutBandIndex)),
   };
+  const cutScope = coerceCutScope(raw);
+  if (cutScope) settings.cutScope = cutScope;
+  return settings;
+}
+
+/**
+ * The scope of the standing band. Files written before 0.3 carried
+ * `cutStanding: true` beside `scope` instead; that meant "the throw was this
+ * scope", so it is read as exactly that once, and written back in the new
+ * shape on the next save.
+ */
+function coerceCutScope(raw: Partial<Settings> & { cutStanding?: unknown }): RegisterScope | undefined {
+  if (raw.cutScope && typeof raw.cutScope === 'object') return coerceScope(raw.cutScope);
+  if (raw.cutStanding === true) return coerceScope(raw.scope);
+  return undefined;
 }
 
 /**
@@ -743,6 +767,11 @@ if (!app.requestSingleInstanceLock()) {
             if (!win || win.isDestroyed()) return;
             if (visible) win.show();
             else win.hide();
+          },
+          setWindowSize: (width: number, height: number) => {
+            const win = mainWindow;
+            if (!win || win.isDestroyed()) return;
+            win.setSize(width, height);
           },
           executeJavaScript: async (code: string) => {
             const win = mainWindow;

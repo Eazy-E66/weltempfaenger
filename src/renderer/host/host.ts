@@ -151,6 +151,7 @@ export class ReceiverHost implements FaceplateHost {
   private directoryFault: DirectoryFailure | null = null;
   /** Bumped per request so a slow answer can never overwrite a newer one. */
   private scopeGeneration = 0;
+  private indexGeneration = 0;
   private scopeTimer: number | undefined;
 
   /**
@@ -321,11 +322,11 @@ export class ReceiverHost implements FaceplateHost {
     // restart threw away — the faceplate returned to `NO BAND CUT` with a locked
     // flywheel and a dead meter band, while the cards behind the lid still
     // remembered exactly what had been pulled.
-    this.cutToRestore = this.settings.cutStanding;
+    this.cutToRestore = this.settings.cutScope !== undefined;
     // Nothing has ever been cut and nothing is filed down: this is a first run,
     // and the drum is filled from the sheet the register is about to fetch.
-    this.openingCut = !this.settings.cutStanding && scopeIsEmpty(this.settings.scope);
-    this.restoreKey = supersetKey(this.settings.scope);
+    this.openingCut = !this.cutToRestore && scopeIsEmpty(this.settings.scope);
+    this.restoreKey = supersetKey(this.settings.cutScope ?? this.settings.scope);
     handle.setScope(this.settings.scope);
     handle.setCut(null, 0, false);
     handle.setPresets(this.memory.presets);
@@ -354,7 +355,50 @@ export class ReceiverHost implements FaceplateHost {
   /** The register's index, then the rows for the restored scope. Both may fail. */
   private async bootstrapDirectory(): Promise<void> {
     await this.loadIndex();
-    await this.refreshScope();
+    await Promise.all([this.refreshScope(), this.restoreDivergentCut()]);
+  }
+
+  /**
+   * The standing band was cut from a scope the register's cards no longer
+   * show — a card was pulled after the throw, and then the app was quit. The
+   * register's own fetch answers the cards; this one answers the throw. It is
+   * one extra round trip, made only in that case.
+   */
+  private async restoreDivergentCut(): Promise<void> {
+    const bridge = this.bridge;
+    const cutScope = this.settings.cutScope;
+    if (!bridge || !this.cutToRestore || !cutScope) return;
+    const key = supersetKey(cutScope);
+    if (key === supersetKey(this.settings.scope)) return; // the register's fetch carries it
+    const result = await bridge.directory.search(supersetQuery(cutScope, SCOPE_LIMIT) ?? { limit: IDLE_LIMIT });
+    if (!this.cutToRestore || key !== this.restoreKey) return;
+    // Failed: the flag stays armed and RECONNECT re-pulls, exactly as for the
+    // register's own fetch. `directoryFault` is already carrying the reason.
+    if (!result.ok) return;
+    this.restoreCut(key, result.value);
+    this.settleRestore(key);
+    this.settlePendingPower();
+  }
+
+  /**
+   * A definitive answer for `key` has landed, and whatever it could not put on
+   * the drum is not "still coming". Both warm-up flags are disarmed here.
+   *
+   * They used to stay armed when the directory answered with nothing — a term
+   * that matched no station, or a card pulled before the first list landed —
+   * and `warmingUp()` then held RADIO ON on `WARMING UP · PLAY STARTS ON ITS
+   * OWN` for ever, on every launch, with nothing on its way. A throw the
+   * directory can no longer satisfy is also forgotten on disk, so the next
+   * launch does not repeat the question; the cards stay where they were.
+   */
+  private settleRestore(key: string): void {
+    if (this.cutToRestore && key === this.restoreKey) {
+      this.cutToRestore = false;
+      this.patchSettings({ cutScope: undefined });
+    }
+    // The opening band is only ever the idle sheet; an answer to anything else
+    // means a card was pulled first and the receiver is no longer coming up.
+    this.openingCut = false;
   }
 
   /**
@@ -380,14 +424,11 @@ export class ReceiverHost implements FaceplateHost {
    * before the first fetch landed, these rows answer a different question and
    * re-deriving from them would put a band on the drum that nobody threw.
    */
-  private restoreCut(key: string): void {
+  private restoreCut(key: string, rows: readonly StationRef[]): void {
     if (!this.cutToRestore || key !== this.restoreKey) return;
-    const rows = this.browse.stations;
-    // No rows means the directory did not answer, or answered with nothing. Keep
-    // the flag: RECONNECT re-pulls, and the band comes back with the list.
-    if (rows.length === 0) return;
+    const scope = this.settings.cutScope;
+    if (!scope || rows.length === 0) return;
     this.cutToRestore = false;
-    const scope = this.settings.scope;
     const index = this.index;
     const view = computeView(rows, scope, index, RESTORE_SORT);
     if (view.rows.length === 0) return;
@@ -823,7 +864,11 @@ export class ReceiverHost implements FaceplateHost {
   private async loadIndex(): Promise<void> {
     const bridge = this.bridge;
     if (!bridge) return;
+    // REPRINT, RECONNECT and RADIO ON can each start a pull while another is in
+    // flight; without this the slower answer lands last and wins.
+    const generation = ++this.indexGeneration;
     const result = await bridge.directory.listIndex();
+    if (generation !== this.indexGeneration) return;
     if (!result.ok) {
       this.directoryFault = result.failure;
       this.index = null;
@@ -888,7 +933,9 @@ export class ReceiverHost implements FaceplateHost {
       this.settlePendingPower();
       return;
     }
-    this.directoryFault = null;
+    // Rows answered, but a failed index is still a directory fault: RECONNECT
+    // must go on re-pulling the edition, not only the sheet.
+    if (this.index) this.directoryFault = null;
     // Zero rows is a real answer, and the register prints NO ENTRY for it. It
     // is not a fault and must not be dressed as one.
     this.setBrowse({
@@ -902,10 +949,11 @@ export class ReceiverHost implements FaceplateHost {
     // place they arrive. Putting it here rather than in `bootstrapDirectory` is
     // what makes an offline launch recoverable: RECONNECT, or a REPRINT, or the
     // network simply coming back, all land here.
-    this.restoreCut(key);
+    this.restoreCut(key, result.value);
     // …and on a profile that has never cut anything, this is where the drum
     // gets its opening band. Same place, same rows, same reason.
     this.openingBand(key);
+    this.settleRestore(key);
     this.settlePendingPower();
   }
 
@@ -924,7 +972,10 @@ export class ReceiverHost implements FaceplateHost {
     this.openingCut = false;
     // The throw tunes below, so a press that was waiting on a band is answered.
     this.powerPending = false;
-    this.patchSettings({ cutStanding: this.cut.bands.length > 0, cutBandIndex: 0 });
+    this.patchSettings({
+      cutScope: this.cut.bands.length > 0 ? { ...this.settings.scope } : undefined,
+      cutBandIndex: 0,
+    });
     this.markDirty();
 
     // The throw is a gesture, so it may start audio. The dial opens at the head

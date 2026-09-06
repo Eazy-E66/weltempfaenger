@@ -854,3 +854,39 @@ describe('the tick runs while there is something to observe', () => {
     expect(vi.getTimerCount()).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// An abandoned re-lock must not speak for the station that replaced it
+// ---------------------------------------------------------------------------
+
+describe('a re-lock abandoned by a new tune', () => {
+  it('cannot write its failure onto the station tuned in its place', async () => {
+    // The AFC timer fires, `connect()` starts minting, the listener tunes
+    // elsewhere while the mint is in flight, and then the mint rejects. Before
+    // the generation guard on that path, the rejection called `fail()` and the
+    // new station came up reading FAULT for a socket it never owned.
+    const deck = makeDeck({ settings: { afcEnabled: true } });
+    await reachPlaying(deck);
+
+    deck.proxy.mintDelayMs = 200;
+    deck.proxy.mintRejection = new Error('EPERM: the proxy could not bind a port');
+    deck.proxy.drop();
+    await vi.advanceTimersByTimeAsync(600); // past the 500 ms first AFC delay: the mint is in flight
+    expect(deck.engine.currentState.phase).toBe('reconnecting');
+
+    deck.proxy.mintDelayMs = 0;
+    deck.proxy.mintRejection = undefined;
+    const next = deck.engine.tune(station('st-2'), [stream('http://b/2')]);
+    await vi.advanceTimersByTimeAsync(300); // the abandoned mint rejects in here
+    await next;
+    deck.proxy.stats({ bytesReceived: 64_000 });
+    deck.el.ready(4);
+    await vi.advanceTimersByTimeAsync(450);
+
+    const state = deck.engine.currentState;
+    expect(state.station?.id).toBe('st-2');
+    expect(state.phase).not.toBe('error');
+    expect(state.error).toBeUndefined();
+    expect(deck.emitted.filter((s) => s.station?.id === 'st-2' && s.phase === 'error')).toHaveLength(0);
+  });
+});

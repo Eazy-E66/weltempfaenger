@@ -978,7 +978,7 @@ describe('a band cut, then a relaunch', () => {
 
   it('writes the throw to settings, not 480 station records', async () => {
     const written = await cutAndQuit();
-    expect(written.cutStanding).toBe(true);
+    expect(written.cutScope?.terms).toEqual(['jazz']);
     expect(written.scope.terms).toEqual(['jazz']);
     // The rows are re-derived, never copied: a settings file that carried them
     // would be a private snapshot free to drift from the directory.
@@ -1153,7 +1153,7 @@ describe('a profile that has never cut anything', () => {
       b.answer = () => hot;
     });
     await vi.advanceTimersByTimeAsync(600);
-    expect(rig.bridge.onDisk.cutStanding).toBe(false);
+    expect(rig.bridge.onDisk.cutScope).toBeUndefined();
   });
 
   it('plays when the power dome is pressed, which is the whole point', async () => {
@@ -1248,7 +1248,7 @@ describe('a profile that has never cut anything', () => {
     expect(r.cuts.at(-1)!.cut!.caption).toBe('POP');
     // Persisted, so the next launch restores theirs rather than cutting another
     // opening band over the top of it.
-    expect(r.bridge.onDisk.cutStanding).toBe(true);
+    expect(r.bridge.onDisk.cutScope?.terms).toEqual(['pop']);
   });
 
   it('will not hand the drum a station it already knows it cannot play', async () => {
@@ -1661,5 +1661,91 @@ describe('the frame loop on a dead station', () => {
 
     expect(r.states.at(-1)!.phase).toBe('buffering');
     expect(parked(r)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A throw the directory can no longer satisfy
+// ---------------------------------------------------------------------------
+
+describe('a standing band whose scope now matches nothing', () => {
+  const jazzScope = { ...EMPTY_SCOPE, terms: ['jazz'] };
+
+  it('does not hold RADIO ON on WARMING UP for ever once the directory has answered', async () => {
+    // Measured on the packaged build: `cutStanding: true` beside a term the
+    // directory answered with zero rows kept `cutToRestore` armed, `warmingUp()`
+    // true, and every press of the power dome on `WARMING UP · PLAY STARTS ON
+    // ITS OWN` — on every launch, with nothing on its way.
+    rig = await booted(
+      (b) => {
+        b.answer = () => [];
+      },
+      (b) => {
+        b.onDisk = { ...DEFAULT_SETTINGS, scope: jazzScope, cutScope: jazzScope, cutBandIndex: 3 };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.notices.at(-1)!.headline).not.toBe('WARMING UP');
+    expect(r.notices.at(-1)!.action).toBeTruthy();
+    // And the answer is not asked again on the next launch: the throw is gone
+    // from disk, the cards are not.
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.bridge.onDisk.cutScope).toBeUndefined();
+    expect(r.bridge.onDisk.scope.terms).toEqual(['jazz']);
+  });
+
+  it('gives the same honest answer when a card was pulled before the first list landed', async () => {
+    // A fresh profile whose opening band can never come, because the idle fetch
+    // was superseded by a scope the listener chose during it.
+    const pop = rows('pop', 30, { tags: ['pop'] });
+    rig = await booted((b) => {
+      b.hold = true;
+      b.answer = (q) => (q.genre === 'pop' ? [] : pop);
+    });
+    const r = rig;
+    r.host.handlers.onScope({ ...EMPTY_SCOPE, terms: ['pop'] });
+    await vi.advanceTimersByTimeAsync(300);
+    r.bridge.hold = false;
+    for (const open of r.bridge.gates.splice(0)) open();
+    await vi.advanceTimersByTimeAsync(300);
+    r.host.handlers.onPower(true);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(r.notices.at(-1)!.headline).not.toBe('WARMING UP');
+  });
+});
+
+describe('a standing band cut from a scope the cards have since left', () => {
+  it('restores the throw, not the cards, with one extra round trip', async () => {
+    // JAZZ was thrown; then a POP card was pulled and the app quit. The drum
+    // must come back carrying JAZZ — the band that was standing — while the
+    // register shows the POP cards, which is what was left on the table.
+    const jazz = rows('jazz', 40, { tags: ['jazz'] });
+    const pop = rows('pop', 30, { tags: ['pop'] });
+    rig = await booted(
+      (b) => {
+        b.answer = (q) => (q.genre === 'jazz' ? jazz : q.genre === 'pop' ? pop : []);
+      },
+      (b) => {
+        b.onDisk = {
+          ...DEFAULT_SETTINGS,
+          scope: { ...EMPTY_SCOPE, terms: ['pop'] },
+          cutScope: { ...EMPTY_SCOPE, terms: ['jazz'] },
+          cutBandIndex: 0,
+        };
+      },
+    );
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(400);
+    expect(r.bridge.queries.map((q) => q.genre).sort()).toEqual(['jazz', 'pop']);
+    const restored = r.cuts.filter((c) => c.cut && c.cut.bands.length > 0).at(-1);
+    expect(restored, 'a cut was restored').toBeTruthy();
+    expect(restored!.cut!.caption).toContain('JAZZ');
+    expect(r.bands.at(-1)!.slots[0]!.station.id).toMatch(/^jazz-/);
+    // The throw stays on disk as the throw; the cards stay as the cards.
+    expect(r.bridge.onDisk.cutScope?.terms).toEqual(['jazz']);
+    expect(r.bridge.onDisk.scope.terms).toEqual(['pop']);
   });
 });

@@ -388,6 +388,7 @@ export class PlaybackEngine {
     }
     this.link.adopt(handle);
     this.starting = false;
+    this.reconnecting = false;
     this.prerollMet = false;
     this.prerollStartedAt = Date.now();
     this.stalledSince = undefined;
@@ -492,10 +493,18 @@ export class PlaybackEngine {
     this.tick();
     this.reconnectTimer = setTimeout(() => {
       if (gen !== this.generation) return;
-      this.reconnecting = false;
-      void this.connect(gen, stream).catch((err) =>
-        this.fail('network', 'the connection to the station failed', (err as Error).message),
-      );
+      // `reconnecting` stays up through the mint round trip: `connect()` takes
+      // it down once a session is adopted, and `fail()` if the mint rejects.
+      // Clearing it here left the engine owning nothing for the length of an
+      // IPC call, which `derivePhase` reads as `idle` — STANDBY on the panel,
+      // in the middle of a re-lock.
+      void this.connect(gen, stream).catch((err) => {
+        // The same guard `tune()` has on this call. Without it a mint that
+        // rejects after the listener has tuned away writes an old attempt's
+        // failure onto the new station's state.
+        if (gen !== this.generation) return;
+        this.fail('network', 'the connection to the station failed', (err as Error).message);
+      });
     }, delay);
   }
 

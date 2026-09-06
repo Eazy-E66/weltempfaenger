@@ -34,6 +34,8 @@ export interface ProxyServerOptions {
   stallTimeoutMs?: number;
   maxRedirects?: number;
   host?: string;
+  /** How long a minted session may wait for its first fetch. Default 60 s. */
+  pendingTtlMs?: number;
 }
 
 export interface ProxyServerEvents {
@@ -49,6 +51,9 @@ export type ExtraRoute = (
 ) => void | Promise<void>;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/** How long an unclaimed session may wait between mint and first fetch. */
+const PENDING_TTL_MS = 60_000;
 
 export class ProxyServer extends EventEmitter<ProxyServerEvents> {
   private server?: http.Server;
@@ -143,6 +148,11 @@ export class ProxyServer extends EventEmitter<ProxyServerEvents> {
     const sessionId = crypto.randomBytes(9).toString('hex');
     const prerollSeconds = clampPreroll(opts.prerollSeconds);
     this.pending.set(sessionId, { url: upstreamUrl, prerollSeconds });
+    // A minted session the <audio> element never fetches — the renderer tuned
+    // away first, or died — would otherwise sit in `pending` for the life of
+    // the process. Nothing legitimate waits this long between mint and fetch.
+    const reaper = setTimeout(() => this.pending.delete(sessionId), this.opts.pendingTtlMs ?? PENDING_TTL_MS);
+    reaper.unref?.();
     const url =
       `http://127.0.0.1:${this.port}/stream` +
       `?u=${encodeURIComponent(upstreamUrl)}` +

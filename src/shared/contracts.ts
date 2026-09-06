@@ -591,7 +591,8 @@ export interface Settings {
   /** What the register last cut. Restored on launch, so the band survives. */
   scope: RegisterScope;
   /**
-   * A band is standing on the drum.
+   * The scope the standing band was cut from, or absent when no band of the
+   * listener's own is standing.
    *
    * `scope` alone was persisted, which restored the *invisible* half of the
    * state and dropped the half the user performed the ritual for: relaunching
@@ -599,13 +600,20 @@ export interface Settings {
    * back on the faceplate, with the flywheel locked and the meter band dead.
    *
    * What is stored is the throw, not its output. The rows are re-derived on
-   * launch from `scope` — the same fetch, the same facet pass, the same
+   * launch from this scope — the same fetch, the same facet pass, the same
    * `cutBands` — so `settings.json` stays a flat bag of scalars and cannot
    * become a stale private copy of 480 station records that disagrees with the
    * directory. A launch with no network therefore cannot restore the drum, and
    * says so: RECONNECT re-pulls and the band comes back.
+   *
+   * This used to be a boolean, `cutStanding`, beside `scope` — which made the
+   * pair able to lie: pull a card after the throw, quit, and the next launch
+   * re-derived a band from the *new* cards that nobody had thrown. The scope of
+   * the throw is its own record now; `scope` is only ever what the register's
+   * cards show. Old files carrying `cutStanding: true` are read as "the throw
+   * was the scope on disk", which is what they meant.
    */
-  cutStanding: boolean;
+  cutScope?: RegisterScope;
   /** Which meter band of that cut is printed on the drum. */
   cutBandIndex: number;
   lastStationId?: string;
@@ -620,6 +628,5 @@ export const DEFAULT_SETTINGS: Settings = {
   bufferDepth: 'wide',
   dialLampOn: true,
   scope: EMPTY_SCOPE,
-  cutStanding: false,
   cutBandIndex: 0,
 };

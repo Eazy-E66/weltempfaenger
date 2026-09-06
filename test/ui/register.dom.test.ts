@@ -1068,6 +1068,41 @@ describe('a click that fails', () => {
     expect(rig.text('.reg-fault__big')).toBe('FAULT · SIGNAL LOST');
     expect(rig.root.querySelector('.reg-fault.is-advice')).toBeNull();
 
+    // The engine's own verdict decides the words. A stall whose cause is the
+    // listener's dial is not a fault and must not be printed as one: the strip
+    // used to say "the station stopped sending" beside a `detuned` verdict
+    // while the bytes were flowing perfectly.
+    rig.handle.setPlayback({
+      ...INITIAL_PLAYBACK_STATE,
+      phase: 'stalled',
+      station: hlsStation,
+      signalLoss: 'detuned',
+      bytesReceived: 800_000,
+    });
+    expect(rig.text('.reg-fault__big')).toBe('OFF STATION');
+    expect(rig.text('.reg-fault__why')).toMatch(/between stations/i);
+    expect(rig.text('.reg-fault__why')).not.toMatch(/stopped sending/i);
+    expect(rig.root.querySelector('.reg-fault.is-advice')).not.toBeNull();
+
+    rig.handle.setPlayback({
+      ...INITIAL_PLAYBACK_STATE,
+      phase: 'stalled',
+      station: hlsStation,
+      signalLoss: 'dead-air',
+      bytesReceived: 800_000,
+    });
+    expect(rig.text('.reg-fault__big')).toBe('FAULT · DEAD AIR');
+    expect(rig.text('.reg-fault__why')).toMatch(/silence/i);
+    expect(rig.root.querySelector('.reg-fault.is-advice')).toBeNull();
+
+    rig.handle.setPlayback({
+      ...INITIAL_PLAYBACK_STATE,
+      phase: 'stalled',
+      station: hlsStation,
+      signalLoss: 'flow-stopped',
+    });
+    expect(rig.text('.reg-fault__big')).toBe('FAULT · SIGNAL LOST');
+
     rig.handle.setPlayback({
       ...INITIAL_PLAYBACK_STATE,
       phase: 'reconnecting',
