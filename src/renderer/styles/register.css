@@ -1662,8 +1662,26 @@
     grid-template-rows: minmax(0, 1fr) auto;
   }
   .combs     { grid-column: 1; grid-row: 1; }
-  .reg-right { grid-column: 1; grid-row: 2; }
-  .sheet     { grid-column: 2; grid-row: 1 / span 2; }
+  /* The map, the throw and the band chart go UNDER the whole body as one
+     shelf, not under the combs. Stacked under the combs they kept their own
+     height and the three index lists — the register's primary control — were
+     left with a single row each at the smallest chassis the app allows
+     (measured at 860×560: SUBJECT showed one tab, ORIGIN and TONGUE none). */
+  .reg-right {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 11px;
+  }
+  .sheet     { grid-column: 2; grid-row: 1; }
+  /* The chart of the world is the one thing on the shelf that dictates its
+     own height — 137 px at 860×560, all of it taken from the index lists
+     above. It goes; SPIN and the origin read-out under the pointer stay, in
+     the same box, because those are controls and the drawing is not. */
+  .mapbox    { flex: 0 0 236px; }
+  .mapbox__svg { display: none; }
+  .cut, .bandpreview { flex: 1 1 0; min-width: 0; }
   /* Reference matter is the first thing off a crowded page: the legend and the
      printed key list say nothing about the data in front of the reader, and
      every key on it is live from anywhere in the product anyway. */

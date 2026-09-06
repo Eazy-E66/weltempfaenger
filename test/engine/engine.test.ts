@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PlaybackEngine, TuneResolutionError } from '../../src/renderer/engine/engine';
+import { DECODER_DEAD_MS, PlaybackEngine, TuneResolutionError } from '../../src/renderer/engine/engine';
 import { AFC_MAX_ATTEMPTS } from '../../src/renderer/engine/afc';
 import type { PlaybackState, PlayableStream, StationRef } from '../../src/shared/contracts';
 import { FakeAudioElement, FakeProxy, installWebAudio } from '../helpers/fakeDeck';
@@ -888,5 +888,53 @@ describe('a re-lock abandoned by a new tune', () => {
     expect(state.phase).not.toBe('error');
     expect(state.error).toBeUndefined();
     expect(deck.emitted.filter((s) => s.station?.id === 'st-2' && s.phase === 'error')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A decoder that produces nothing while bytes keep arriving
+// ---------------------------------------------------------------------------
+
+describe('bytes that never become audio', () => {
+  it('is a decode fault after the deadline when nothing has ever played — not BUFFERING for ever', async () => {
+    // Measured on the built app against a loopback stream of noise: BUFFERING
+    // with the byte count climbing for as long as anyone cared to wait.
+    const deck = makeDeck({ settings: { afcEnabled: true, bufferDepth: 'narrow' } });
+    // Chromium exactly: play() on an element that never reaches HAVE_FUTURE_DATA
+    // stays pending and nothing advances.
+    deck.el.playPending = true;
+    await deck.engine.tune(station(), [stream('http://a/1')]);
+    let bytes = 64_000;
+    for (let t = 0; t < DECODER_DEAD_MS + 3_000; t += 500) {
+      bytes += 8_000;
+      deck.proxy.stats({ bytesReceived: bytes, prerollComplete: true });
+      await vi.advanceTimersByTimeAsync(500);
+      if (t < DECODER_DEAD_MS - 1_000) {
+        expect(deck.engine.currentState.phase, `at ${t} ms`).toBe('buffering');
+      }
+    }
+    const state = deck.engine.currentState;
+    expect(state.phase).toBe('error');
+    expect(state.error?.kind).toBe('decode');
+    expect(state.error?.message).not.toMatch(JARGON);
+  });
+
+  it('is a drop for AFC to re-lock when the stream turned to noise mid-song', async () => {
+    const deck = makeDeck({ settings: { afcEnabled: true } });
+    await reachPlaying(deck);
+    // The element stops advancing; the proxy keeps counting bytes.
+    deck.el.stopAdvancing();
+    let bytes = 200_000;
+    const seen = new Set<string>();
+    for (let t = 0; t < DECODER_DEAD_MS + 4_000; t += 500) {
+      bytes += 8_000;
+      deck.proxy.stats({ bytesReceived: bytes, prerollComplete: true });
+      await vi.advanceTimersByTimeAsync(500);
+      seen.add(`${deck.engine.currentState.phase}:${deck.engine.currentState.signalLoss ?? '-'}`);
+    }
+    // The stall is named for what it is while it stands, then AFC takes over.
+    expect(seen.has('stalled:undecodable')).toBe(true);
+    expect(seen.has('stalled:flow-stopped')).toBe(false);
+    expect(seen.has('reconnecting:-')).toBe(true);
   });
 });

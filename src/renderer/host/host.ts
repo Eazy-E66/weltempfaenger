@@ -83,6 +83,13 @@ const SCOPE_LIMIT = 10000;
 const IDLE_LIMIT = 2000;
 /** Pulling three cards in a second is one intent, not three searches. */
 const SCOPE_DEBOUNCE_MS = 220;
+
+/**
+ * Unattended re-pulls after a directory fault, in order; the list is the
+ * budget. Four pulls over about four minutes covers a mirror that was down for
+ * a moment without turning a dead directory into a background request storm.
+ */
+const DIRECTORY_RETRY_MS: readonly number[] = [15_000, 30_000, 60_000, 120_000];
 /**
  * Measured playing seconds after which the mount currently in use counts as
  * good, and RECONNECT's candidate walk for that station is reset.
@@ -149,6 +156,13 @@ export class ReceiverHost implements FaceplateHost {
   private state: PlaybackState = INITIAL_PLAYBACK_STATE;
 
   private directoryFault: DirectoryFailure | null = null;
+  /**
+   * The unattended re-pull after a directory fault. Bounded — see
+   * `DIRECTORY_RETRY_MS` — and reset to a fresh budget by any hand on
+   * RECONNECT or REPRINT, or by the browser reporting the network back.
+   */
+  private directoryRetryTimer = 0;
+  private directoryRetries = 0;
   /** Bumped per request so a slow answer can never overwrite a newer one. */
   private scopeGeneration = 0;
   private indexGeneration = 0;
@@ -160,6 +174,14 @@ export class ReceiverHost implements FaceplateHost {
    * visibly different from the ninth.
    */
   private notice: PanelNotice | null = null;
+  /**
+   * The station a standing notice is about, when it is about one. A fault
+   * announced for station A must come down the moment station B is asked for:
+   * measured on the built app, `STATION FAILED — A — THAT ADDRESS SERVES A WEB
+   * PAGE` stayed on the annunciator through B's whole BUFFERING, under a
+   * readout that named B.
+   */
+  private noticeSubject?: string;
   private noticeSeq = 0;
 
   /** Which resolved candidate to prefer per station; advanced by RECONNECT. */
@@ -275,7 +297,45 @@ export class ReceiverHost implements FaceplateHost {
     document.addEventListener('pointerdown', this.onFirstGesture, { capture: true });
     document.addEventListener('keydown', this.onFirstGesture, { capture: true });
     window.addEventListener('pagehide', this.onPageHide);
+    window.addEventListener('online', this.onOnline);
     void this.boot();
+  }
+
+  /**
+   * The browser says the network is back. Only a hint — Chromium's `online`
+   * is "an interface is up", not "the directory answers" — so it is spent on
+   * exactly one thing: a directory fault that is standing gets re-pulled now,
+   * with a fresh retry budget, instead of on the next timer.
+   */
+  private readonly onOnline = (): void => {
+    if (!this.directoryFault) return;
+    this.directoryRetries = 0;
+    this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
+    void this.bootstrapDirectory();
+  };
+
+  /**
+   * A directory fault has just been recorded. Try again on the receiver's own,
+   * a bounded number of times, so a mirror that was down for a minute does not
+   * need a hand on RECONNECT to come back — and no more than that, so a
+   * directory that is really gone is not hammered for the life of the session.
+   */
+  private scheduleDirectoryRetry(): void {
+    window.clearTimeout(this.directoryRetryTimer);
+    const delay = DIRECTORY_RETRY_MS[this.directoryRetries];
+    if (delay === undefined) return; // budget spent: RECONNECT and REPRINT remain
+    this.directoryRetryTimer = window.setTimeout(() => {
+      if (!this.directoryFault || !this.bridge) return;
+      this.directoryRetries += 1;
+      void this.bootstrapDirectory();
+    }, delay);
+  }
+
+  /** The directory answered: the retry budget is whole again. */
+  private clearDirectoryRetry(): void {
+    window.clearTimeout(this.directoryRetryTimer);
+    this.directoryRetryTimer = 0;
+    this.directoryRetries = 0;
   }
 
   private async boot(): Promise<void> {
@@ -569,6 +629,8 @@ export class ReceiverHost implements FaceplateHost {
     document.removeEventListener('pointerdown', this.onFirstGesture, { capture: true });
     document.removeEventListener('keydown', this.onFirstGesture, { capture: true });
     window.removeEventListener('pagehide', this.onPageHide);
+    window.removeEventListener('online', this.onOnline);
+    window.clearTimeout(this.directoryRetryTimer);
     this.settingsWriter.flush();
     this.memoryWriter.flush();
     this.engine?.dispose();
@@ -743,6 +805,9 @@ export class ReceiverHost implements FaceplateHost {
     // meaningful, and it is only honest to send it once audio is really
     // flowing — not when someone merely clicked.
     const station = state.station;
+    if (station && this.noticeSubject !== undefined && this.noticeSubject !== station.id) {
+      this.clearNotice();
+    }
     if (state.phase === 'playing' && station && this.reportedStationId !== station.id) {
       this.reportedStationId = station.id;
       void this.bridge?.directory.reportListening(station.id);
@@ -836,14 +901,16 @@ export class ReceiverHost implements FaceplateHost {
    * Anything said here must name only controls that are on the current
    * faceplate. The genre selector is gone; nothing may mention it.
    */
-  private notify(spec: say.NoticeSpec): void {
+  private notify(spec: say.NoticeSpec, subject?: StationRef): void {
     this.notice = { ...spec, seq: ++this.noticeSeq };
+    this.noticeSubject = subject?.id;
     this.handle?.setNotice(this.notice);
     this.markDirty();
   }
 
   /** Take the message down. Called the moment the state it described is over. */
   private clearNotice(): void {
+    this.noticeSubject = undefined;
     if (!this.notice) return;
     this.notice = null;
     this.handle?.setNotice(null);
@@ -871,6 +938,7 @@ export class ReceiverHost implements FaceplateHost {
     if (generation !== this.indexGeneration) return;
     if (!result.ok) {
       this.directoryFault = result.failure;
+      this.scheduleDirectoryRetry();
       this.index = null;
       this.indexFault = directoryFaultText(result.failure);
       this.handle?.setIndex(null, this.indexFault);
@@ -919,6 +987,7 @@ export class ReceiverHost implements FaceplateHost {
 
     if (!result.ok) {
       this.directoryFault = result.failure;
+      this.scheduleDirectoryRetry();
       // A fault is a settled answer to *this* question (Law 4), so it carries
       // this question's key and the register may print NOT PRINTED for it.
       this.setBrowse({
@@ -935,7 +1004,10 @@ export class ReceiverHost implements FaceplateHost {
     }
     // Rows answered, but a failed index is still a directory fault: RECONNECT
     // must go on re-pulling the edition, not only the sheet.
-    if (this.index) this.directoryFault = null;
+    if (this.index) {
+      this.directoryFault = null;
+      this.clearDirectoryRetry();
+    }
     // Zero rows is a real answer, and the register prints NO ENTRY for it. It
     // is not a fault and must not be dressed as one.
     this.setBrowse({
@@ -1260,6 +1332,7 @@ export class ReceiverHost implements FaceplateHost {
 
   private onReprint(): void {
     this.onFirstGesture();
+    this.directoryRetries = 0;
     void this.bootstrapDirectory();
   }
 
@@ -1340,6 +1413,7 @@ export class ReceiverHost implements FaceplateHost {
     // RECONNECT is the panel's one recovery control, so it recovers whichever
     // thing is broken: the directory, the station, or both.
     if (this.directoryFault) {
+      this.directoryRetries = 0;
       this.notify(say.repullingDirectory(directoryFaultText(this.directoryFault)));
       void this.bootstrapDirectory();
     }
@@ -1366,7 +1440,7 @@ export class ReceiverHost implements FaceplateHost {
     this.retryPresses = this.retryOf === station.id ? this.retryPresses + 1 : 1;
     this.retryOf = station.id;
     this.lastFaultText = faulted ? this.state.error?.message : undefined;
-    this.notify(say.reconnecting(station, this.retryPresses, faulted));
+    this.notify(say.reconnecting(station, this.retryPresses, faulted), station);
     this.tuneStation(station);
   }
 
@@ -1395,6 +1469,7 @@ export class ReceiverHost implements FaceplateHost {
         // works.
         canRetry: error.kind !== 'hls',
       }),
+      station,
     );
     // Remember what this attempt said, so the *next* one can recognise a repeat.
     this.lastFaultText = error.message;

@@ -186,6 +186,8 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
   let cut: Cut | null = null;
   let cutBandIndex = 0;
   let lidOpen = false;
+  /** The host's own list fetch is in flight — the plate's "not yet". */
+  let browseLoading = false;
   /** True while the annunciator is carrying a message. Drives the REGISTER lamp. */
   let noticeUp = false;
   /** Set while pushing host state into controls, so they do not echo back. */
@@ -1002,6 +1004,7 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
       // Measured. This used to be `isPowered(state) && !!state.station`, which
       // is "a station has been asked for" — see `airStateOf`.
       air: state.station ? airStateOf(state) : 'off',
+      warming: browseLoading,
     });
   }
 
@@ -1230,6 +1233,10 @@ export function mountFaceplate(root: HTMLElement, handlers: FaceplateHandlers): 
     },
 
     setBrowseResults(next: BrowseResults) {
+      if (browseLoading !== next.loading) {
+        browseLoading = next.loading;
+        pushBandContext();
+      }
       lid.setRows(next.stations, {
         loading: next.loading,
         key: next.key,

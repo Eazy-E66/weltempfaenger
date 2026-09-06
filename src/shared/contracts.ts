@@ -299,7 +299,15 @@ export type SignalLoss =
   /** The dial is off-station, so the front end has closed on purpose. */
   | 'detuned'
   /** Bytes are flowing and the front end is open, but the decoder emits silence. */
-  | 'dead-air';
+  | 'dead-air'
+  /**
+   * Bytes are flowing and the decoder is producing nothing at all — not even
+   * silence. A stream that is not audio, or one that turned into noise
+   * mid-song. The engine gives the decoder `DECODER_DEAD_MS` and then treats it
+   * as a drop (mid-stream) or a decode fault (from the first byte), so this is
+   * the verdict for those seconds, never a resting state.
+   */
+  | 'undecodable';
 
 /**
  * An AFC re-lock in flight. Present only while `phase` is `reconnecting`.

@@ -76,6 +76,25 @@ const FRONT_END_CLOSED = 0.05;
 export const STALL_HOLD_MS = 750;
 
 /**
+ * How long the decoder may produce nothing while bytes keep arriving before the
+ * engine stops calling it BUFFERING or SIGNAL LOST and names it.
+ *
+ * Measured on the built app against a loopback stream of noise: from the
+ * first byte the panel read BUFFERING with the byte count climbing for as
+ * long as anyone cared to wait, and noise injected mid-song read `SIGNAL LOST
+ * · FLOW STOPPED` beside a byte count that had not stopped. Neither state had
+ * an exit: the proxy's stall detector never fires while bytes flow, so AFC
+ * never engaged, and nothing else was watching the decoder.
+ *
+ * Counted from the later of the pre-roll completing and the decoder's last
+ * advance, so a wide buffer's ten seconds of pre-roll are not charged to it.
+ */
+export const DECODER_DEAD_MS = 10_000;
+
+/** Bytes are "flowing" if the count moved within this window. */
+const FLOW_FRESH_MS = 2_000;
+
+/**
  * Strings that betray the browser's internals rather than describing a fault.
  *
  * Chromium's `MediaError.message` is a developer diagnostic —
@@ -163,6 +182,10 @@ export class PlaybackEngine {
 
   private prerollMet = false;
   private prerollStartedAt = 0;
+  /** When the proxy first reported the pre-roll complete for this session. */
+  private prerollCompleteAt?: number;
+  private lastBytesSeen = 0;
+  private lastBytesMovedAt = 0;
   /** Wall clock of the last tick at which the reported level was off the stop. */
   private lastSignalAt = 0;
   /** Wall clock at which the derived phase first read `stalled`. */
@@ -393,10 +416,30 @@ export class PlaybackEngine {
     this.prerollStartedAt = Date.now();
     this.stalledSince = undefined;
 
+    this.prerollCompleteAt = undefined;
+    this.lastBytesSeen = 0;
+    this.lastBytesMovedAt = Date.now();
+
     this.observer.reset();
     this.el.src = handle.url;
     this.el.load(); // the socket opens here, not before
     this.tick();
+  }
+
+  /**
+   * Bytes are arriving from the session: the count moved inside `FLOW_FRESH_MS`.
+   * Tracked here rather than read off the proxy's stall flag because that flag
+   * is about *absence* of bytes; this is the presence that makes a silent
+   * decoder the decoder's fault.
+   */
+  private bytesFlowing(now: number, stats: ProxySessionStats | undefined): boolean {
+    const bytes = stats?.bytesReceived ?? 0;
+    if (bytes !== this.lastBytesSeen) {
+      this.lastBytesSeen = bytes;
+      this.lastBytesMovedAt = now;
+    }
+    if (stats?.prerollComplete && this.prerollCompleteAt === undefined) this.prerollCompleteAt = now;
+    return bytes > 0 && now - this.lastBytesMovedAt < FLOW_FRESH_MS;
   }
 
   /**
@@ -635,6 +678,7 @@ export class PlaybackEngine {
       mediaError: o.error !== undefined,
     };
     const phase = derivePhase(evidence);
+    const flowing = this.bytesFlowing(now, stats);
 
     if (phase === 'playing') {
       this.playingMs += dt;
@@ -653,7 +697,7 @@ export class PlaybackEngine {
 
     this.stalledSince = phase === 'stalled' ? (this.stalledSince ?? now) : undefined;
     const level = this.readSignalLevel();
-    const { reported, signalLoss } = this.qualify(phase, level, now, stats);
+    const { reported, signalLoss } = this.qualify(phase, level, now, stats, flowing);
 
     this.state = {
       ...this.state,
@@ -690,6 +734,27 @@ export class PlaybackEngine {
       now - (this.stalledSince ?? now) >= STALL_HOLD_MS
     ) {
       this.onDrop('the station stopped sending');
+      return;
+    }
+
+    // The decoder has had bytes and produced nothing with them. Mid-stream that
+    // is a drop for AFC to re-lock; from the first byte it is a stream this
+    // receiver cannot decode, and the seventh try would not change that.
+    if (
+      (phase === 'buffering' || phase === 'stalled') &&
+      flowing &&
+      stats?.prerollComplete === true &&
+      !this.reconnecting &&
+      !this.failure
+    ) {
+      const watchedFrom = Math.max(o.lastAdvanceAt ?? 0, this.prerollCompleteAt ?? now);
+      if (now - watchedFrom >= DECODER_DEAD_MS) {
+        if (o.events['playing'] !== undefined) {
+          this.onDrop('the stream stopped decoding');
+        } else {
+          this.fail('decode', 'nothing in the stream could be decoded', 'decoder produced no audio while bytes arrived');
+        }
+      }
     }
   }
 
@@ -709,10 +774,14 @@ export class PlaybackEngine {
     level: number,
     now: number,
     stats: ProxySessionStats | undefined,
+    flowing: boolean,
   ): { reported: PlaybackState['phase']; signalLoss: SignalLoss | undefined } {
     if (phase !== 'playing') {
       this.lastSignalAt = now;
-      const loss: SignalLoss | undefined = phase === 'stalled' ? 'flow-stopped' : undefined;
+      // A stall with bytes still arriving is not "flow stopped": the flow is
+      // the one thing that has not stopped. It is the decoder that has.
+      const loss: SignalLoss | undefined =
+        phase === 'stalled' ? (flowing && stats?.stalled !== true ? 'undecodable' : 'flow-stopped') : undefined;
       return { reported: phase, signalLoss: loss };
     }
     if (level > 0) {

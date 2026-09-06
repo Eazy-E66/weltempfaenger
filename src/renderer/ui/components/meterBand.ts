@@ -48,6 +48,13 @@ export interface BandContext {
   registerVisible: boolean;
   /** The engine's own verdict on the one station in hand. Measured, per frame. */
   air: AirState;
+  /**
+   * The station list is still in flight. An empty drum during those seconds
+   * is "nothing here YET", and the plate used to say `PRESS STATIONS, PICK A
+   * SUBJECT` beside an annunciator saying `THE DIAL FILLS ON ITS OWN` — two
+   * instructions on one panel, one of them about to be wrong.
+   */
+  warming: boolean;
 }
 
 export interface MeterBandHandle {
@@ -124,7 +131,7 @@ export function createMeterBand(onSelect: (index: number) => void): MeterBandHan
   let angle = 0;
   let accum = 0;
   let cutCaption: string | null = null;
-  let context: BandContext = { registerVisible: false, air: 'off' };
+  let context: BandContext = { registerVisible: false, air: 'off', warming: false };
   let inertTimer = 0;
 
   const applyAngle = (): void => {
@@ -383,6 +390,7 @@ export function bandHint(context: BandContext, hasCut: boolean): string {
       return 'THAT STATION FAILED — PRESS RECONNECT, OR CUT A BAND FOR MORE';
     case 'off':
     default:
+      if (context.warming) return 'STATION LIST COMING IN — THE DIAL FILLS ON ITS OWN';
       return context.registerVisible
         ? 'IN THE REGISTER ABOVE: PICK A SUBJECT, THEN THROW CUT BAND'
         : 'PRESS STATIONS, PICK A SUBJECT, THEN THROW CUT BAND';

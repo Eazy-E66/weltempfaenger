@@ -1749,3 +1749,85 @@ describe('a standing band cut from a scope the cards have since left', () => {
     expect(r.bridge.onDisk.scope.terms).toEqual(['pop']);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// A directory that comes back on its own
+// ---------------------------------------------------------------------------
+
+describe('a directory fault the listener does not touch', () => {
+  it('is re-pulled on a bounded schedule, and the sheet prints when the mirror answers', async () => {
+    const hot = rows('hot', 20);
+    rig = await booted((b) => {
+      b.searchFails = true;
+      b.answer = () => hot;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(1);
+    expect(r.frame().count).toBe('NOT PRINTED');
+
+    // Nothing for 14 s, then the first unattended pull at 15 s.
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(r.bridge.queries.map((q) => JSON.stringify(q))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(r.bridge.queries).toHaveLength(2);
+
+    // Still down: the next one waits 30 s, not 15.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(r.bridge.queries).toHaveLength(2);
+    r.bridge.searchFails = false;
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect(r.bridge.queries).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.frame().count).not.toBe('NOT PRINTED');
+    expect(r.bands.at(-1)!.slots.length).toBeGreaterThan(0);
+
+    // Answered: no further pulls are scheduled.
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(r.bridge.queries).toHaveLength(3);
+  });
+
+  it('spends its budget and then stops, leaving RECONNECT and REPRINT to a hand', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    // 15 + 30 + 60 + 120 s of retries, then nothing for as long as you like.
+    await vi.advanceTimersByTimeAsync(230_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(r.bridge.queries).toHaveLength(5);
+    // A hand on REPRINT is a fresh budget.
+    r.host.handlers.onReprint();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(6);
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(r.bridge.queries).toHaveLength(7);
+  });
+
+  it('is re-pulled at once when the browser reports the network back', async () => {
+    rig = await booted((b) => {
+      b.searchFails = true;
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(1);
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(2);
+  });
+
+  it('does nothing on `online` when there is no fault to recover from', async () => {
+    rig = await booted((b) => {
+      b.answer = () => rows('hot', 20);
+    });
+    const r = rig;
+    await vi.advanceTimersByTimeAsync(300);
+    const before = r.bridge.queries.length;
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(r.bridge.queries).toHaveLength(before);
+  });
+});

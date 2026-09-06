@@ -339,15 +339,26 @@ describe('the sheet header cannot be poisoned by a panel message', () => {
 
 describe('the band plate hint reflects reality', () => {
   it('does not tell you to open a register that is already open', () => {
-    const hint = bandHint({ registerVisible: true, air: 'off' }, false);
+    const hint = bandHint({ registerVisible: true, air: 'off', warming: false }, false);
     expect(hint).not.toMatch(/OPEN THE REGISTER/);
     expect(hint).toContain('ABOVE');
   });
 
   it('does tell you where the register is when it is not on screen', () => {
-    const hint = bandHint({ registerVisible: false, air: 'off' }, false);
+    const hint = bandHint({ registerVisible: false, air: 'off', warming: false }, false);
     // Named as the key is silkscreened, not as the machine files it.
     expect(hint).toContain('STATIONS');
+  });
+
+  it('says the list is still coming in, rather than sending you to cut a band that is about to appear', () => {
+    // Measured on the packaged build: the plate said `PRESS STATIONS, PICK A
+    // SUBJECT, THEN THROW CUT BAND` while the annunciator two rows down said
+    // `THE DIAL FILLS AND PLAY STARTS ON ITS OWN`. Two instructions, one panel.
+    const hint = bandHint({ registerVisible: false, air: 'off', warming: true }, false);
+    expect(hint).toMatch(/COMING IN/);
+    expect(hint).not.toMatch(/CUT BAND/);
+    // A cut on the drum outranks everything: the plate prints the caption.
+    expect(bandHint({ registerVisible: false, air: 'off', warming: true }, true)).toBe('');
   });
 
   it('stops nagging while audio is playing', () => {
